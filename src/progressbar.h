@@ -48,12 +48,9 @@ public:
 	
 	void update(const char* bundle_label_buf, double inc_amt)
 	{
-		
 		_num_complete += inc_amt;
 		_num_updates ++;
-		
-		if (cuff_verbose||cuff_quiet||_tot_num==0) return;
-
+				
 		char bundle_buf[28];
 		bundle_buf[27] = '\0';
 		strncpy(bundle_buf, bundle_label_buf, 27);

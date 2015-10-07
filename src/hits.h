@@ -5,8 +5,6 @@
 #include <config.h>
 #endif
 
-#include <iostream>
-#include <fstream>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +22,7 @@
 #include "multireads.h"
 
 using namespace std;
+using boost::shared_ptr;
 
 /*
  *  hits.h
@@ -35,7 +34,9 @@ using namespace std;
  */
 
 enum CuffStrand { CUFF_STRAND_UNKNOWN = 0, CUFF_FWD = 1, CUFF_REV = 2, CUFF_BOTH = 3 };
-
+//Nimrod
+enum AlleleInfo { ALLELE_PATERNAL = 0, ALLELE_MATERNAL = 1, ALLELE_UNINFORMATIVE_PATERNAL_REF = 2, ALLELE_UNINFORMATIVE_MATERNAL_REF = 3, ALLELE_UNKNOWN = 4 };
+	
 
 enum CigarOpCode 
 { 
@@ -88,7 +89,8 @@ struct ReadHit
 			unsigned int edit_dist,
 			int num_hits,
             float base_mass,
-            uint32_t sam_flag) :
+            uint32_t sam_flag,
+		    AlleleInfo allele_info) :
 		_ref_id(ref_id),
 		_insert_id(insert_id), 
 		_left(left), 
@@ -99,7 +101,8 @@ struct ReadHit
         _base_mass(base_mass),
         _edit_dist(edit_dist),
 		_num_hits(num_hits),
-        _sam_flag(sam_flag)
+        _sam_flag(sam_flag),
+		_allele_info(allele_info)
 	{
 		assert(_cigar.capacity() == _cigar.size());
 		_right = get_right();
@@ -116,7 +119,8 @@ struct ReadHit
 			unsigned int  edit_dist,
 			int num_hits,
             float base_mass,
-            uint32_t sam_flag) : 
+            uint32_t sam_flag,
+		    AlleleInfo allele_info) : 
 		_ref_id(ref_id),
 		_insert_id(insert_id), 	
 		_left(left),
@@ -127,7 +131,8 @@ struct ReadHit
         _base_mass(base_mass),
         _edit_dist(edit_dist),
 		_num_hits(num_hits),
-        _sam_flag(sam_flag)
+        _sam_flag(sam_flag),
+		_allele_info(allele_info)
 	{
 		assert(_cigar.capacity() == _cigar.size());
 		_right = get_right();
@@ -148,7 +153,8 @@ struct ReadHit
         _edit_dist = other._edit_dist;
         _right = get_right();
         _sam_flag = other._sam_flag;
-        num_deleted++;
+		_allele_info = other._allele_info;
+		num_deleted++;
     }
     
     ~ReadHit()
@@ -202,8 +208,10 @@ struct ReadHit
 	            _left == rhs._left && 
 	            _source_strand == rhs._source_strand &&
 	            /* DO NOT USE ACCEPTED IN COMPARISON */
-	            _cigar == rhs._cigar);
+	            _cigar == rhs._cigar &&
+			    _allele_info == rhs._allele_info);
     }
+	
 	
 	RefID ref_id() const				{ return _ref_id;			}
 	InsertID insert_id() const			{ return _insert_id;		}
@@ -226,6 +234,43 @@ struct ReadHit
 		if (is_singleton())
 			return 1.0/_num_hits;
 		return 0.5 / _num_hits;
+	}
+	
+	void parental_masses(double& paternal_mass, double& maternal_mass) const 
+	{
+		if (is_singleton())
+		{
+			if(allele_info() == ALLELE_PATERNAL)
+			{
+				paternal_mass = 1.0/_num_hits;
+				maternal_mass = 0.0;
+			}
+			else if(allele_info() == ALLELE_MATERNAL)
+			{
+				paternal_mass = 0.0;
+				maternal_mass = 1.0/_num_hits;
+			}
+			else{
+				paternal_mass = 0.5/_num_hits;
+				maternal_mass = 0.5/_num_hits;
+			}
+		}
+		else{
+			if(allele_info() == ALLELE_PATERNAL)
+			{
+				paternal_mass = 0.5/_num_hits;
+				maternal_mass = 0.0;
+			}
+			else if(allele_info() == ALLELE_MATERNAL)
+			{
+				paternal_mass = 0.0;
+				maternal_mass = 0.5/_num_hits;
+			}
+			else{
+				paternal_mass = 0.25/_num_hits;
+				maternal_mass = 0.25/_num_hits;
+			}
+		}
 	}
 	
 	// For convenience, if you just want a copy of the gap intervals
@@ -277,6 +322,7 @@ struct ReadHit
     
 	//const string& hitfile_rec() const { return _hitfile_rec; }
 	//void hitfile_rec(const string& rec) { _hitfile_rec = rec; }
+	AlleleInfo allele_info()	const	{ return _allele_info; }
 	
 private:
 	
@@ -316,11 +362,12 @@ private:
 	vector<CigarOp> _cigar;
 	
 	CuffStrand _source_strand;    // Which strand the read really came from, if known
-    float _base_mass;
+	float _base_mass;
     unsigned int  _edit_dist;            // Number of mismatches
 	int _num_hits; // Number of multi-hits (1 by default)
     uint32_t _sam_flag;
 	//string _hitfile_rec; // Points to the buffer for the record from which this hit came
+	AlleleInfo _allele_info; //Nimrod: which allele the read really came from, if known
 };
 
 class ReadTable
@@ -584,7 +631,8 @@ public:
 					   unsigned int  edit_dist,
 					   int num_hits,
                        float base_mass,
-                       uint32_t sam_flag);
+                       uint32_t sam_flag,
+					   AlleleInfo allele_info = ALLELE_UNKNOWN);
 	
 	ReadHit create_hit(const string& insert_name, 
 					   const string& ref_name,
@@ -596,7 +644,8 @@ public:
 					   unsigned int  edit_dist,
 					   int num_hits,
                        float base_mass,
-                       uint32_t sam_flag);
+                       uint32_t sam_flag,
+					   AlleleInfo allele_info = ALLELE_UNKNOWN);
 	
 	virtual void reset() = 0;
 	
@@ -803,142 +852,6 @@ private:
     bool _eof_encountered;
 };
 
-class AbundanceGroup;
-    
-/******************************************************************************
- BAMHitFactory turns SAM alignments into ReadHits
- *******************************************************************************/
-class PrecomputedExpressionHitFactory : public HitFactory
-{
-public:
-    PrecomputedExpressionHitFactory(const string& expression_file_name,
-                                    ReadTable& insert_table,
-                                    RefSequenceTable& reference_table) :
-    HitFactory(insert_table, reference_table), _expression_file_name(expression_file_name), _ifs(expression_file_name.c_str()),
-    _ia(boost::shared_ptr<boost::archive::binary_iarchive>(new boost::archive::binary_iarchive(_ifs)))
-    {
-        load_count_tables(expression_file_name);
-        
-        if (inspect_header() == false)
-        {
-            throw std::runtime_error("Error: could not parse CXB header");
-        }
-        
-        // Override header-inferred read group properities with whatever
-        // the user supplied.
-        if (global_read_properties != NULL)
-        {
-            _rg_props = *global_read_properties;
-        }
-        
-        load_checked_parameters(expression_file_name);
-        
-        //map<string, AbundanceGroup> single_sample_tracking;
-        
-        _num_loci = 0;
-        *_ia >> _num_loci;
-        
-        _curr_locus_idx = 0;
-        _last_locus_id = -1;
-    }
-    
-    ~PrecomputedExpressionHitFactory()
-    {
-        
-    }
-    
-    void mark_curr_pos()
-    {
-        
-    }
-    
-    void undo_hit()
-    {
-    }
-    
-    bool records_remain() const
-    {
-        return false;
-    }
-    
-    void reset()
-    {
-        _ifs.clear() ;
-        _ifs.seekg(0, ios::beg);
-        _ia = boost::shared_ptr<boost::archive::binary_iarchive>(new boost::archive::binary_iarchive(_ifs));
-        size_t num_loci = 0;
-        *_ia >> num_loci;
-        _last_locus_id = -1;
-        _curr_locus_idx = 0;
-        _curr_ab_groups.clear();
-    }
-    
-    bool next_record(const char*& buf, size_t& buf_size);
-    
-    bool get_hit_from_buf(const char* bwt_buf, 
-                          ReadHit& bh,
-                          bool strip_slash,
-                          char* name_out = NULL,
-                          char* name_tags = NULL);
-    
-    bool inspect_header();
-    
-    boost::shared_ptr<const AbundanceGroup> next_locus(int locus_id, bool cache_locus);
-    
-    boost::shared_ptr<const AbundanceGroup> get_abundance_for_locus(int locus_id);
-    void clear_abundance_for_locus(int locus_id);
-    
-    double get_compat_mass(int locus_id)
-    {
-       map<int, double >::iterator i = compat_mass.find(locus_id);
-       if (i != compat_mass.end())
-       {
-           return i->second;
-       }
-       else
-       {
-           return 0;
-       }
-    }
-
-    double get_total_mass(int locus_id)
-    {
-        map<int, double >::iterator i = total_mass.find(locus_id);
-        if (i != total_mass.end())
-        {
-            return i->second;
-        }
-        else
-        {
-            return 0;
-        }
-    }
-
-    
-private:
-    
-    void load_count_tables(const string& expression_file_name);
-    void load_checked_parameters(const string& expression_file_name);
-    
-    //map<int, boost::shared_ptr<const AbundanceGroup> > ab_group_table;
-    size_t _num_loci;
-    size_t _curr_locus_idx;
-    int _last_locus_id;
-    std::ifstream _ifs;
-    string _expression_file_name;
-    boost::shared_ptr<boost::archive::binary_iarchive> _ia;
-    map<int, double> compat_mass;
-    map<int, double> total_mass;
-    map<int, boost::shared_ptr<const AbundanceGroup> > _curr_ab_groups;
-    
-    boost::shared_ptr<ReadGroupProperties> _cached_rg_props;
-    
-#if ENABLE_THREADS
-    boost::mutex _factory_lock;
-#endif
-};
-    
-    
 // Forward declaration of BundleFactory, because MateHit will need a pointer
 // back to the Factory that created.  Ultimately, we should replace this
 // with a pointer back to the ReadGroupProperty object corresponding to each 
@@ -963,7 +876,7 @@ public:
     _collapse_mass(0.0),
     _is_mapped(false){}
     
-	MateHit(boost::shared_ptr<ReadGroupProperties const> rg_props,
+	MateHit(shared_ptr<ReadGroupProperties const> rg_props,
             RefID refid, 
 			const ReadHit* left_alignment, 
 			const ReadHit* right_alignment) : 
@@ -983,7 +896,7 @@ public:
 
 	//bool closed() {return _closed;}
 	
-    boost::shared_ptr<ReadGroupProperties const> read_group_props() const { return _rg_props; }
+    shared_ptr<ReadGroupProperties const> read_group_props() const { return _rg_props; }
     
 	const ReadHit* left_alignment() const {return _left_alignment;}
 	void left_alignment(const ReadHit* left_alignment) 
@@ -1073,6 +986,21 @@ public:
 		return (_left_alignment->contains_splice());
 	}
 	
+	AlleleInfo allele() const
+	{
+		AlleleInfo left_allele,right_allele;
+		if (_left_alignment)
+		{
+			left_allele = _left_alignment->allele_info();
+		}
+		if (_right_alignment)
+		{
+			right_allele = _right_alignment->allele_info();
+		}
+		assert (left_allele == right_allele);
+		return(left_allele);
+	}
+	
 	InsertID insert_id() const
 	{
 		if (_left_alignment) return _left_alignment->insert_id();
@@ -1121,17 +1049,35 @@ public:
     // We are ignoring the mass reported by the ReadHits and re-calculating based on multi-hits
 	double mass() const
 	{
-        double base_mass = 1.0;
+		double base_mass = 1.0;
 
         if (is_multi())
 		{
-			boost::shared_ptr<MultiReadTable> mrt = _rg_props->multi_read_table();
+			shared_ptr<MultiReadTable> mrt = _rg_props->multi_read_table();
 			if (mrt)
 				return mrt->get_mass(*this);
 			else
 				return base_mass/num_hits();
 		}
 		return base_mass;
+	}
+	
+	void parental_masses(double& paternal_mass, double& maternal_mass) const
+	{
+        paternal_mass = 0.5;
+		maternal_mass = 0.5;
+		
+        if (is_multi())
+		{
+			shared_ptr<MultiReadTable> mrt = _rg_props->multi_read_table();
+			if (mrt)
+				mrt->get_mass(*this, paternal_mass, maternal_mass);
+			else
+			{
+				paternal_mass /= num_hits();
+				maternal_mass /= num_hits();
+			}
+		}
 	}
     
 	double internal_scale_mass() const
@@ -1158,7 +1104,7 @@ public:
 	
 private:
 	
-    boost::shared_ptr<ReadGroupProperties const> _rg_props;
+    shared_ptr<ReadGroupProperties const> _rg_props;
 	RefID _refid;
 	const ReadHit* _left_alignment;
 	const ReadHit* _right_alignment;
@@ -1170,19 +1116,22 @@ private:
 bool mate_hit_lt(const MateHit& lhs, const MateHit& rhs);
 
 bool hits_eq_mod_id(const ReadHit& lhs, const ReadHit& rhs);
+bool hits_eq_mod_id_allele(const ReadHit& lhs, const ReadHit& rhs);
 
 bool hits_eq_non_multi(const MateHit& lhs, const MateHit& rhs);
+bool hits_eq_non_multi_allele(const MateHit& lhs, const MateHit& rhs);
+
 bool hits_eq_non_multi_non_replicate(const MateHit& lhs, const MateHit& rhs);
+bool hits_eq_non_multi_non_replicate_allele(const MateHit& lhs, const MateHit& rhs);
 
 bool hits_equals(const MateHit& lhs, const MateHit& rhs);
+bool hits_equals_allele(const MateHit& lhs, const MateHit& rhs);
 
 bool has_no_collapse_mass(const MateHit& hit);
 
 // Assumes hits are sorted by mate_hit_lt
 void collapse_hits(const vector<MateHit>& hits,
-				   vector<MateHit>& non_redundant);
-
-void normalize_counts(std::vector<boost::shared_ptr<ReadGroupProperties> > & all_read_groups);
+				   vector<MateHit>& non_redundant, const bool allele=false);
 
 
 

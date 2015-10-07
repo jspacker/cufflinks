@@ -7,6 +7,12 @@
  *
  */
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#else
+#define PACKAGE_VERSION "INTERNAL"
+#endif
+
 #include <stdlib.h>
 #include <getopt.h>
 #include <string>
@@ -113,7 +119,7 @@ int parse_options(int argc, char** argv)
 
 void compress_genes(FILE* ftranscripts,
                     RefSequenceTable& rt,
-                    vector<boost::shared_ptr<Scaffold> >& ref_mRNAs)
+                    vector<shared_ptr<Scaffold> >& ref_mRNAs)
 {
     adjacency_list <vecS, vecS, undirectedS> G;
     
@@ -124,10 +130,10 @@ void compress_genes(FILE* ftranscripts,
 	
     for (size_t i = 0; i < ref_mRNAs.size(); ++i)
 	{
-        boost::shared_ptr<Scaffold> scaff_i = ref_mRNAs[i];
+        shared_ptr<Scaffold> scaff_i = ref_mRNAs[i];
         for (size_t j = 0; j < ref_mRNAs.size(); ++j)
         {
-            boost::shared_ptr<Scaffold> scaff_j = ref_mRNAs[j];
+            shared_ptr<Scaffold> scaff_j = ref_mRNAs[j];
 			if (scaff_i->annotated_gene_id() == scaff_j->annotated_gene_id())
 				add_edge(i, j, G);
 		}
@@ -141,7 +147,7 @@ void compress_genes(FILE* ftranscripts,
 	
 	//vector<vector<size_t> > cluster_indices(three_prime_ends.size());
     
-    vector<vector<boost::shared_ptr<Scaffold> > > grouped_scaffolds(ref_mRNAs.size());
+    vector<vector<shared_ptr<Scaffold> > > grouped_scaffolds(ref_mRNAs.size());
 	for (size_t i = 0; i < ref_mRNAs.size(); ++i)
 	{
 		clusters[component[i]][i] = true;
@@ -150,10 +156,10 @@ void compress_genes(FILE* ftranscripts,
     
     for (size_t i = 0; i < grouped_scaffolds.size(); ++i)
     {
-        vector<boost::shared_ptr<Scaffold> >& gene = grouped_scaffolds[i];
+        vector<shared_ptr<Scaffold> >& gene = grouped_scaffolds[i];
         vector<Scaffold> gene_scaffs;
         string gene_id;
-        BOOST_FOREACH (boost::shared_ptr<Scaffold> s, gene)
+        foreach (shared_ptr<Scaffold> s, gene)
         {
             if (gene_id == "")
                 gene_id = s->annotated_gene_id();
@@ -169,7 +175,7 @@ void compress_genes(FILE* ftranscripts,
         Scaffold smashed_gene;
         if (!proj_intersection && !proj_union)
         {
-            BOOST_FOREACH (boost::shared_ptr<Scaffold> s, gene)
+            foreach (shared_ptr<Scaffold> s, gene)
             {
                 /*
                  *transfrag,
@@ -218,7 +224,7 @@ void compress_genes(FILE* ftranscripts,
                 int gmax = -1;
                 int gmin = numeric_limits<int>::max();
                 
-                BOOST_FOREACH (boost::shared_ptr<Scaffold> s, gene)
+                foreach (shared_ptr<Scaffold> s, gene)
                 {
                     //iso_ops.push_back(s->augmented_ops());
                     //sort (iso_ops.back().begin(), iso_ops.back().end());
@@ -228,7 +234,7 @@ void compress_genes(FILE* ftranscripts,
                         gmax = s->right();
                 }
                 
-                BOOST_FOREACH (boost::shared_ptr<Scaffold> s, gene)
+                foreach (shared_ptr<Scaffold> s, gene)
                 {
                     if (s->left() > gmin)
                     {
@@ -338,20 +344,19 @@ void driver(vector<FILE*> ref_gtf_files, FILE* gtf_out)
 	ReadTable it;
 	RefSequenceTable rt(true, false);
 	
-	vector<vector<boost::shared_ptr<Scaffold> > > ref_mRNA_table;
+	vector<vector<shared_ptr<Scaffold> > > ref_mRNA_table;
 	vector<pair<string, vector<double> > > sample_count_table;
     
-    BOOST_FOREACH (FILE* ref_gtf, ref_gtf_files)
+    foreach (FILE* ref_gtf, ref_gtf_files)
     {
-        vector<boost::shared_ptr<Scaffold> > ref_mRNAs;
-        boost::crc_32_type gtf_crc_result;
-        ::load_ref_rnas(ref_gtf, rt, ref_mRNAs, gtf_crc_result, false, true);
+        vector<shared_ptr<Scaffold> > ref_mRNAs;
+        ::load_ref_rnas(ref_gtf, rt, ref_mRNAs, false, true);
         ref_mRNA_table.push_back(ref_mRNAs);
     }
     
     for (size_t j = 0; j < ref_mRNA_table.size(); ++j)
     {
-        vector<boost::shared_ptr<Scaffold> > ref_mRNAs = ref_mRNA_table[j];
+        vector<shared_ptr<Scaffold> > ref_mRNAs = ref_mRNA_table[j];
         
         if (!raw_fpkm)
             compress_genes(gtf_out, rt, ref_mRNAs);
@@ -388,7 +393,7 @@ int main(int argc, char** argv)
     
     vector<FILE*> ref_gtf_files;
     
-    BOOST_FOREACH (const string& ref_gtf_in_filename, ref_gtf_filenames)
+    foreach (const string& ref_gtf_in_filename, ref_gtf_filenames)
     {
         FILE* ref_gtf = NULL;
         if (ref_gtf_in_filename != "")

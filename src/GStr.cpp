@@ -287,37 +287,28 @@ bool GStr::operator!=(const char *s) const {
  return (strcmp(chars(), s) != 0);
  }
 
-GStr& GStr::append(char c) {
- char buf[5];
+GStr& GStr::operator+=(const GStr& s) {
+ return append((const char *)s);
+ }
+
+GStr& GStr::operator+=(const char* s) {
+ return append(s);
+ }
+
+GStr& GStr::operator+=(const char c) {
+ char buf[4];
  sprintf(buf,"%c",c);
  return append(buf);
  }
 
-GStr& GStr::append(int i) {
+GStr& GStr::operator+=(const int i) {
  char buf[20];
  sprintf(buf,"%d",i);
  return append(buf);
  }
 
-GStr& GStr::append(uint i) {
- char buf[20];
- sprintf(buf,"%u",i);
- return append(buf);
- }
 
-GStr& GStr::append(long l) {
- char buf[20];
- sprintf(buf,"%ld",l);
- return append(buf);
- }
-
-GStr& GStr::append(unsigned long l) {
- char buf[20];
- sprintf(buf,"%lu", l);
- return append(buf);
- }
-
-GStr& GStr::append(double f) {
+GStr& GStr::operator+=(const double f) {
  char buf[30];
  sprintf(buf,"%f",f);
  return append(buf);

@@ -21,7 +21,6 @@
     #define __WIN32__
   #endif
   #include <windows.h>
-  #include <direct.h>
   #include <io.h>
   #define CHPATHSEP '\\'
   #undef off_t
@@ -29,24 +28,24 @@
   #ifndef popen
    #define popen _popen
   #endif
-  #ifndef fseeko
-		#ifdef _fseeki64
-			#define fseeko(stream, offset, origin) _fseeki64(stream, offset, origin)
-		#else
-			/*
-			#define _DEFINE_WIN32_FSEEKO
-			int fseeko(FILE *stream, off_t offset, int whence);
-			*/
-			#define fseeko fseek
-		#endif
+  #ifdef _fseeki64
+    #define fseeko(stream, offset, origin) _fseeki64(stream, offset, origin)
+  #else
+    /*
+    #define _DEFINE_WIN32_FSEEKO
+    int fseeko(FILE *stream, off_t offset, int whence);
+    */
+    #define fseeko fseek
   #endif
- #ifndef ftello
   #ifdef _ftelli64
     #define ftello(stream) _ftelli64(stream)
   #else
+    /*
+    #define _DEFINE_WIN32_FTELLO
+    off_t ftello(FILE *stream);
+    */
     #define ftello ftell
   #endif
- #endif
  #else
   #define CHPATHSEP '/'
   #include <unistd.h>
@@ -61,8 +60,6 @@
 
 #ifdef DEBUG
 #undef NDEBUG
-#define _DEBUG 1
-#define _DEBUG_ 1
 #endif
 
 typedef int32_t int32;
@@ -145,9 +142,6 @@ typedef void* pointer;
 typedef unsigned int uint;
 
 typedef int GCompareProc(const pointer item1, const pointer item2);
-typedef long GFStoreProc(const pointer item1, FILE* fstorage); //for serialization
-typedef pointer GFLoadProc(FILE* fstorage); //for deserialization
-
 typedef void GFreeProc(pointer item); //usually just delete,
       //but may also support structures with embedded dynamic members
 
@@ -171,9 +165,6 @@ inline int iround(double x) {
    return (int)floor(x + 0.5);
 }
 
-int Gmkdir(const char *path, bool recursive=true, int perms=0775);
-
-
 /****************************************************************************/
 
 inline int Gintcmp(int a, int b) {
@@ -185,8 +176,6 @@ int Gstrcmp(const char* a, const char* b, int n=-1);
 //same as strcmp but doesn't crash on NULL pointers
 
 int Gstricmp(const char* a, const char* b, int n=-1);
-bool GstrEq(const char* a, const char* b);
-bool GstriEq(const char* a, const char* b);
 
 //basic swap template function
 template<class T> void Gswap(T& lhs, T& rhs) {
@@ -205,7 +194,7 @@ bool GRealloc(pointer* ptr,unsigned long size); // Resize memory
 void GFree(pointer* ptr); // Free memory, resets ptr to NULL
 
 
-//int saprintf(char **retp, const char *fmt, ...);
+int saprintf(char **retp, const char *fmt, ...);
 
 void GError(const char* format,...); // Error routine (aborts program)
 void GMessage(const char* format,...);// Log message to stderr
@@ -261,16 +250,13 @@ char* rstrstr(const char* rstart, const char *lend, const char* substr);
  a pointer to the last (right) matching character in str */
 
 char* strifind(const char* str,  const char* substr);
-// case insensitive version of strstr -- finding a string within another string
-// returns NULL if not found
+// the case insensitive version of strstr -- finding a string within a strin
+
 
 //Determines if a string begins with a given prefix
 //(returns false when any of the params is NULL,
 // but true when prefix is '' (empty string)!)
 bool startsWith(const char* s, const char* prefix);
-
-bool startsiWith(const char* s, const char* prefix); //case insensitive
-
 
 bool endsWith(const char* s, const char* suffix);
 //Note: returns true if suffix is empty string, but false if it's NULL
@@ -426,7 +412,7 @@ char* fgetline(char* & buf, int& buflen, FILE* stream, off_t* f_pos=NULL, int* l
 
 
 //print int/values nicely formatted in 3-digit groups
-char* commaprintnum(uint64 n);
+char* commaprint(uint64 n);
 
 /*********************** File management functions *********************/
 

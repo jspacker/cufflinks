@@ -7,6 +7,12 @@
  *
  */
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#else
+#define PACKAGE_VERSION "INTERNAL"
+#endif
+
 #include <stdlib.h>
 #include <getopt.h>
 #include <string>
@@ -181,7 +187,7 @@ void print_scaff_as_sam(FILE* sam_out,
     
 }
 	
-void set_relative_fpkms(vector<boost::shared_ptr<Scaffold> >& ref_mRNAs)
+void set_relative_fpkms(vector<shared_ptr<Scaffold> >& ref_mRNAs)
 {
     adjacency_list <vecS, vecS, undirectedS> G;
 	
@@ -223,7 +229,7 @@ void set_relative_fpkms(vector<boost::shared_ptr<Scaffold> >& ref_mRNAs)
 	
 	//vector<vector<size_t> > cluster_indices(three_prime_ends.size());
     
-    vector<vector<boost::shared_ptr<Scaffold> > > grouped_scaffolds(ref_mRNAs.size());
+    vector<vector<shared_ptr<Scaffold> > > grouped_scaffolds(ref_mRNAs.size());
 	for (size_t i = 0; i < ref_mRNAs.size(); ++i)
 	{
 		clusters[component[i]][i] = true;
@@ -232,16 +238,16 @@ void set_relative_fpkms(vector<boost::shared_ptr<Scaffold> >& ref_mRNAs)
     
     for (size_t i = 0; i < grouped_scaffolds.size(); ++i)
     {
-        vector<boost::shared_ptr<Scaffold> >& gene = grouped_scaffolds[i];
+        vector<shared_ptr<Scaffold> >& gene = grouped_scaffolds[i];
         
         double total_fpkm = 0.0;
-        BOOST_FOREACH(boost::shared_ptr<Scaffold> scaff, gene)
+        foreach(shared_ptr<Scaffold> scaff, gene)
         {
             total_fpkm += scaff->fpkm();
         }
         if (total_fpkm > 0)
         {
-            BOOST_FOREACH (boost::shared_ptr<Scaffold> scaff, gene)
+            foreach (shared_ptr<Scaffold> scaff, gene)
             {
                 scaff->fpkm(scaff->fpkm() / total_fpkm);
             }
@@ -254,20 +260,19 @@ void driver(vector<FILE*> ref_gtf_files, FILE* sam_out)
 	ReadTable it;
 	RefSequenceTable rt(true, false);
 	
-	vector<vector<boost::shared_ptr<Scaffold> > > ref_mRNA_table;
+	vector<vector<shared_ptr<Scaffold> > > ref_mRNA_table;
 	vector<pair<string, vector<double> > > sample_count_table;
     
-    BOOST_FOREACH (FILE* ref_gtf, ref_gtf_files)
+    foreach (FILE* ref_gtf, ref_gtf_files)
     {
-        vector<boost::shared_ptr<Scaffold> > ref_mRNAs;
-        boost::crc_32_type ref_gtf_crc_result;
-        ::load_ref_rnas(ref_gtf, rt, ref_mRNAs, ref_gtf_crc_result, false, true);
+        vector<shared_ptr<Scaffold> > ref_mRNAs;
+        ::load_ref_rnas(ref_gtf, rt, ref_mRNAs, false, true);
         ref_mRNA_table.push_back(ref_mRNAs);
     }
     
     for (size_t j = 0; j < ref_mRNA_table.size(); ++j)
     {
-        vector<boost::shared_ptr<Scaffold> > ref_mRNAs = ref_mRNA_table[j];
+        vector<shared_ptr<Scaffold> > ref_mRNAs = ref_mRNA_table[j];
         
         if (!raw_fpkm)
             set_relative_fpkms(ref_mRNAs);
@@ -309,7 +314,7 @@ int main(int argc, char** argv)
     
     vector<FILE*> ref_gtf_files;
     
-    BOOST_FOREACH (const string& ref_gtf_in_filename, ref_gtf_filenames)
+    foreach (const string& ref_gtf_in_filename, ref_gtf_filenames)
     {
         FILE* ref_gtf = NULL;
         if (ref_gtf_in_filename != "")

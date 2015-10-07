@@ -22,8 +22,6 @@
 #include "hits.h"
 #include "tokenize.h"
 
-#include "abundances.h"
-
 using namespace std;
 
 #if ENABLE_THREADS
@@ -178,12 +176,31 @@ bool hits_eq_mod_id(const ReadHit& lhs, const ReadHit& rhs)
 			lhs.cigar() == rhs.cigar());
 }
 
+//identical to hits_eq_mod_id but requiring allele equality
+bool hits_eq_mod_id_allele(const ReadHit& lhs, const ReadHit& rhs)
+{
+	return (lhs.ref_id() == rhs.ref_id() &&
+			lhs.antisense_align() == rhs.antisense_align() &&
+			lhs.left() == rhs.left() && 
+			lhs.source_strand() == rhs.source_strand() &&
+			lhs.cigar() == rhs.cigar() &&
+			lhs.allele_info() == rhs.allele_info());
+}
+
 // Compares for structural equality, but won't declare multihits equal to one another
 bool hits_eq_non_multi(const MateHit& lhs, const MateHit& rhs)
 {
 	if ((lhs.is_multi() || rhs.is_multi() ) && lhs.insert_id() != rhs.insert_id())
 		return false;
 	return hits_equals(lhs, rhs);
+}
+
+// identical to hits_eq_non_multi but requiring allele equality
+bool hits_eq_non_multi_allele(const MateHit& lhs, const MateHit& rhs)
+{
+	if ((lhs.is_multi() || rhs.is_multi() ) && lhs.insert_id() != rhs.insert_id())
+		return false;
+	return hits_equals_allele(lhs, rhs);
 }
 
 // Compares for structural equality, but won't declare multihits equal to one another
@@ -194,7 +211,15 @@ bool hits_eq_non_multi_non_replicate(const MateHit& lhs, const MateHit& rhs)
 		return false;
 	return hits_equals(lhs, rhs);
 }
-    
+
+// identical to hits_eq_non_multi_non_replicate_allele but requiring allele equality
+bool hits_eq_non_multi_non_replicate_allele(const MateHit& lhs, const MateHit& rhs)
+{
+	if (((lhs.is_multi() || rhs.is_multi()) && lhs.insert_id() != rhs.insert_id()) || lhs.read_group_props() != rhs.read_group_props())
+		return false;
+	return hits_equals_allele(lhs, rhs);
+}
+   
 // Does NOT care about the read group this hit came from.
 bool hits_equals(const MateHit& lhs, const MateHit& rhs) 
 {
@@ -218,6 +243,29 @@ bool hits_equals(const MateHit& lhs, const MateHit& rhs)
 	return true;
 }
 
+// identical to hits_equals but requiring allele equality
+bool hits_equals_allele(const MateHit& lhs, const MateHit& rhs) 
+{
+	if (lhs.ref_id() != rhs.ref_id())
+		return false;
+	
+	if ((lhs.left_alignment() == NULL) != (rhs.left_alignment() == NULL))
+		return false;
+	if ((lhs.right_alignment() == NULL) != (rhs.right_alignment() == NULL))
+		return false;
+	if (lhs.left_alignment())
+	{
+		if (!(hits_eq_mod_id_allele(*lhs.left_alignment(),*(rhs.left_alignment()))))
+			return false;
+	}
+	if (lhs.right_alignment())
+	{
+		if (!(hits_eq_mod_id_allele(*lhs.right_alignment(),*(rhs.right_alignment()))))
+			return false;
+	}
+	return true;
+}
+
 bool has_no_collapse_mass(const MateHit& hit)
 {
 	return hit.collapse_mass() == 0;
@@ -226,35 +274,58 @@ bool has_no_collapse_mass(const MateHit& hit)
 // Assumes hits are sorted by mate_hit_lt
 // Does not collapse hits that are multi-reads
 void collapse_hits(const vector<MateHit>& hits,
-				   vector<MateHit>& non_redundant)
+				   vector<MateHit>& non_redundant, const bool allele)
 {
 	copy(hits.begin(), hits.end(), back_inserter(non_redundant));
-	vector<MateHit>::iterator new_end = unique(non_redundant.begin(), 
-											   non_redundant.end(), 
-											   hits_eq_non_multi_non_replicate);
+	vector<MateHit>::iterator new_end;
+	if(!allele)
+	{
+		new_end = unique(non_redundant.begin(), 
+						 non_redundant.end(), 
+						 hits_eq_non_multi_non_replicate);
+	}
+	else{
+		new_end = unique(non_redundant.begin(), 
+						 non_redundant.end(), 
+						 hits_eq_non_multi_non_replicate_allele);
+	}
 	non_redundant.erase(new_end, non_redundant.end());
     non_redundant.resize(non_redundant.size());
 	
-	BOOST_FOREACH(MateHit& hit, non_redundant)
+	foreach(MateHit& hit, non_redundant)
 		hit.collapse_mass(0);
 	
 	size_t curr_aln = 0;
 	size_t curr_unique_aln = 0;
 	while (curr_aln < hits.size())
 	{
-		if (hits_eq_non_multi_non_replicate(non_redundant[curr_unique_aln], hits[curr_aln]) || hits_eq_non_multi_non_replicate(non_redundant[++curr_unique_aln], hits[curr_aln]))
+		if(!allele)
 		{
-            double more_mass = hits[curr_aln].internal_scale_mass();
-			//assert(non_redundant[curr_unique_aln].collapse_mass() == 0 || !non_redundant[curr_unique_aln].is_multi());
-			non_redundant[curr_unique_aln].incr_collapse_mass(more_mass);
+			if (hits_eq_non_multi_non_replicate(non_redundant[curr_unique_aln], hits[curr_aln]) || hits_eq_non_multi_non_replicate(non_redundant[++curr_unique_aln], hits[curr_aln]))
+			{
+				double more_mass = hits[curr_aln].internal_scale_mass();
+				//assert(non_redundant[curr_unique_aln].collapse_mass() == 0 || !non_redundant[curr_unique_aln].is_multi());
+				non_redundant[curr_unique_aln].incr_collapse_mass(more_mass);
+			}
+			else
+				assert(false);
 		}
 		else
-			assert(false);
-		
+		{
+			if (hits_eq_non_multi_non_replicate_allele(non_redundant[curr_unique_aln], hits[curr_aln]) || hits_eq_non_multi_non_replicate_allele(non_redundant[++curr_unique_aln], hits[curr_aln]))
+			{
+				double more_mass = hits[curr_aln].internal_scale_mass();
+				//assert(non_redundant[curr_unique_aln].collapse_mass() == 0 || !non_redundant[curr_unique_aln].is_multi());
+				non_redundant[curr_unique_aln].incr_collapse_mass(more_mass);
+			}
+			else
+				assert(false);
+		}
+		   
 		++curr_aln;
 	}
 	
-	//BOOST_FOREACH(MateHit& hit, non_redundant)
+	//foreach(MateHit& hit, non_redundant)
 		//assert(hit.collapse_mass() <= 1 || !hit.is_multi());
 	
 	//non_redundant.erase(remove_if(non_redundant.begin(),non_redundant.end(),has_no_collapse_mass), non_redundant.end()); 
@@ -334,7 +405,8 @@ ReadHit HitFactory::create_hit(const string& insert_name,
 							   unsigned int edit_dist,
 							   int num_hits,
                                float base_mass,
-                               uint32_t sam_flag)
+                               uint32_t sam_flag,
+	                           AlleleInfo allele_info)
 {
 	InsertID insert_id = _insert_table.get_id(insert_name);
 	RefID reference_id = _ref_table.get_id(ref_name, NULL);
@@ -350,7 +422,8 @@ ReadHit HitFactory::create_hit(const string& insert_name,
 				   edit_dist,
 				   num_hits,
                    base_mass,
-                   sam_flag);	
+                   sam_flag,
+		           allele_info);	
 }
 
 ReadHit HitFactory::create_hit(const string& insert_name, 
@@ -363,7 +436,8 @@ ReadHit HitFactory::create_hit(const string& insert_name,
 							   unsigned int edit_dist,
 							   int num_hits,
                                float base_mass,
-                               uint32_t sam_flag)
+                               uint32_t sam_flag,
+							   AlleleInfo allele_info)
 {
 	InsertID insert_id = _insert_table.get_id(insert_name);
 	RefID reference_id = _ref_table.get_id(ref_name, NULL);
@@ -379,7 +453,8 @@ ReadHit HitFactory::create_hit(const string& insert_name,
 				   edit_dist,
 				   num_hits,
                    base_mass,
-                   sam_flag);	
+                   sam_flag,
+				   allele_info);	
 }
 
 // populate a bam_t This will 
@@ -480,7 +555,8 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 						0,
 						1,
                         1.0,
-                        sam_flag);
+                        sam_flag,
+			            ALLELE_UNKNOWN);
 		return true;
 	}
 	if (target_id >= _hit_file->header->n_targets)
@@ -553,7 +629,7 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 	
 	CuffStrand source_strand = CUFF_STRAND_UNKNOWN;
 	unsigned char num_mismatches = 0;
-
+	AlleleInfo allele_info = ALLELE_UNKNOWN; //Nimrod
 	uint8_t* ptr = bam_aux_get(hit_buf, "XS");
 	if (ptr)
 	{
@@ -584,7 +660,26 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
         if (mass <= 0.0)
             mass = 1.0;
 	}
-	    
+	//Nimrod
+	//Allele information tag: XA:i:[0-3]
+	//0 - all variations contained in this locus are paternal (i.e., a paternal allele produced read)	
+	//1 - all variations contained in this locus are maternal (i.e., a maternal allele produced read)
+	//2 - either no variations or all variations contained in this locus are ambiguous wrt the allele, yet the paternal genomes is used as ref
+	//3 - either no variations or all variations contained in this locus are ambiguous wrt the allele, yet the maternal genomes is used as ref
+	
+	ptr = bam_aux_get(hit_buf, "XA");
+	if (ptr)
+	{
+		 int alleleInfo = bam_aux2i(ptr);
+		 switch (alleleInfo) {
+			 case 0: allele_info = ALLELE_PATERNAL; break;
+		     case 1: allele_info = ALLELE_MATERNAL; break;
+			 case 2: allele_info = ALLELE_UNINFORMATIVE_PATERNAL_REF; break;
+			 case 3: allele_info = ALLELE_UNINFORMATIVE_MATERNAL_REF; break;	 
+			 default: allele_info = ALLELE_UNKNOWN; break;
+		 }		 
+	}
+	
     if (_rg_props.strandedness() == STRANDED_PROTOCOL && source_strand == CUFF_STRAND_UNKNOWN)
 		source_strand = use_stranded_protocol(sam_flag, _rg_props.mate_strand_mapping());
     
@@ -603,7 +698,8 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 						num_mismatches,
 						num_hits,
                         mass,
-                        sam_flag);
+                        sam_flag,
+			            allele_info);
 		return true;
 		
 	}
@@ -624,7 +720,8 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 						num_mismatches,
 						num_hits,
                         mass,
-                        sam_flag);
+                        sam_flag,
+			            allele_info);
 		return true;
 	}
 	
@@ -654,6 +751,10 @@ Platform str_to_platform(const string pl_str)
 bool HitFactory::parse_header_string(const string& header_rec,
                                      ReadGroupProperties& rg_props)
 {
+	//Nimrod
+	//initialize with unphased
+	Phase p = UNPHASED;
+	rg_props.phase(p);
     vector<string> columns;
     tokenize(header_rec, "\t", columns); 
     
@@ -715,7 +816,15 @@ bool HitFactory::parse_header_string(const string& header_rec,
             }
         }
     }
-
+	//Nimrod
+	else if (columns[0] == "@CO")
+    {
+		if (columns[1] == "phased")
+		{
+			Phase p = PHASED;
+			rg_props.phase(p);
+		}
+	}
     return true;
 }
 
@@ -735,7 +844,7 @@ void HitFactory::finalize_rg_props()
     }
 }
 
-static const unsigned MAX_HEADER_LEN = 64 * 1024 * 1024; // 4 MB
+static const unsigned MAX_HEADER_LEN = 4 * 1024 * 1024; // 4 MB
 
 bool BAMHitFactory::inspect_header()
 {
@@ -747,11 +856,11 @@ bool BAMHitFactory::inspect_header()
         return false;
     }
     
-//    if (header->l_text >= MAX_HEADER_LEN)
-//    {
-//        fprintf(stderr, "Warning: BAM header too large\n");
-//        return false;
-//    }
+    if (header->l_text >= MAX_HEADER_LEN)
+    {
+        fprintf(stderr, "Warning: BAM header too large\n");
+        return false;
+    }
 
 	if (header->l_text == 0)
 	{
@@ -899,7 +1008,8 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 						0,
 						1,
                         1.0,
-                        sam_flag);
+                        sam_flag,
+			            ALLELE_UNKNOWN);
 		return true;
 	}
 	// Mostly pilfered direct from the SAM tools:
@@ -910,7 +1020,6 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 		if (length <= 0)
 		{
 			fprintf (stderr, "SAM error on line %d: CIGAR op has zero length\n", _line_num);
-            fprintf (stderr,"%s\n", orig_bwt_buf);
 			return false;
 		}
 		char op_char = toupper(*t);
@@ -983,6 +1092,7 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 	
 	CuffStrand source_strand = CUFF_STRAND_UNKNOWN;
 	unsigned char num_mismatches = 0;
+	AlleleInfo allele_info = ALLELE_UNKNOWN; //Nimrod
 	
 	const char* tag_buf = buf;
 	
@@ -1025,6 +1135,23 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
                     if (mass <= 0.0)
                         mass = 1.0;
 				}
+				//Nimrod
+				//Allele information tag: XA:i:[0-4]
+				//0 - all variations contained in this locus are paternal (i.e., a paternal allele produced read)	
+				//1 - all variations contained in this locus are maternal (i.e., a maternal allele produced read)
+				//2 - either no variations or all variations contained in this locus are ambiguous wrt the allele yet the paternal genome is used as ref				
+				//3 - either no variations or all variations contained in this locus are ambiguous wrt the allele yet the maternal genome is used as ref				
+				else if (!strcmp(first_token, "XA"))
+				{
+					int alleleInfo = atoi(third_token);
+					switch (alleleInfo) {
+					    case 0: allele_info = ALLELE_PATERNAL; break;
+					    case 1: allele_info = ALLELE_MATERNAL; break;
+					    case 2: allele_info = ALLELE_UNINFORMATIVE_PATERNAL_REF; break;
+						case 3: allele_info = ALLELE_UNINFORMATIVE_MATERNAL_REF; break;
+					    default: allele_info = ALLELE_UNKNOWN; break;
+					}
+				}
 				else 
 				{
 					
@@ -1050,7 +1177,8 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 						num_mismatches,
 						num_hits,
                         mass,
-                        sam_flag);
+                        sam_flag,
+			            allele_info);
 		return true;
 		
 	}
@@ -1071,7 +1199,9 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 						num_mismatches,
 						num_hits,
                         mass,
-                        sam_flag);
+                        sam_flag,
+			            allele_info);
+				
 		return true;
 	}
 	return false;
@@ -1103,180 +1233,3 @@ bool SAMHitFactory::inspect_header()
     finalize_rg_props();
     return true;
 }
-
-//////////////////////////////////////////
-
-void PrecomputedExpressionHitFactory::load_count_tables(const string& expression_file_name)
-{
-    //map<int, AbundanceGroup > ab_groups;
-    
-    
-    std::ifstream ifs(expression_file_name.c_str());
-    boost::archive::binary_iarchive ia(ifs);
-    
-    //map<string, AbundanceGroup> single_sample_tracking;
-    
-    size_t num_loci = 0;
-    ia >> num_loci;
-    
-    if (num_loci > 0)
-    {
-        pair<int, AbundanceGroup> first_locus;
-        ia >> first_locus;
-        boost::shared_ptr<AbundanceGroup> ab = boost::shared_ptr<AbundanceGroup>(new AbundanceGroup(first_locus.second));
-        
-        // populate the cached count tables so we can make convincing fake bundles later on.
-        ReadGroupProperties rg_props = **(ab->rg_props().begin());
-
-        int i = 0;
-        BOOST_FOREACH(const LocusCount& c, rg_props.raw_compatible_counts())
-        {
-            compat_mass[i++] = c.count;
-            //compat_mass[c.locus_desc] = c.count;
-        }
-
-        i = 0;
-        BOOST_FOREACH(const LocusCount& c, rg_props.raw_total_counts())
-        {
-            total_mass[i++] = c.count;
-            //total_mass[c.locus_desc] = c.count;
-        }
-    }
-}
-
-void PrecomputedExpressionHitFactory::load_checked_parameters(const string& expression_file_name)
-{
-    std::ifstream ifs(expression_file_name.c_str());
-    boost::archive::binary_iarchive ia(ifs);
-    
-    //map<string, AbundanceGroup> single_sample_tracking;
-    
-    size_t num_loci = 0;
-    ia >> num_loci;
-    
-    if (num_loci > 0)
-    {
-        pair<int, AbundanceGroup> first_locus;
-        ia >> first_locus;
-        boost::shared_ptr<AbundanceGroup> ab = boost::shared_ptr<AbundanceGroup>(new AbundanceGroup(first_locus.second));
-        
-        // populate the cached count tables so we can make convincing fake bundles later on.
-        ReadGroupProperties rg_props = **(ab->rg_props().begin());
-        _rg_props.checked_parameters(rg_props.checked_parameters());
-    }
-}
-
-bool PrecomputedExpressionHitFactory::next_record(const char*& buf, size_t& buf_size)
-{
-	return false;
-}
-
-bool PrecomputedExpressionHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
-									 ReadHit& bh,
-									 bool strip_slash,
-									 char* name_out,
-									 char* name_tags)
-{
-	return false;
-}
-
-bool PrecomputedExpressionHitFactory::inspect_header()
-{
-    
-    std::ifstream ifs(_expression_file_name.c_str());
-    boost::archive::binary_iarchive ia(ifs);
-
-    RefSequenceTable& rt = ref_table();
-    
-    size_t num_loci = 0;
-    ia >> num_loci;
-    
-    for (size_t i = 0; i < num_loci; ++i)
-    {
-        pair<int, AbundanceGroup> locus;
-
-        ia >> locus;
-        boost::shared_ptr<AbundanceGroup> ab = boost::shared_ptr<AbundanceGroup>(new AbundanceGroup(locus.second));
-        
-        const string locus_tag = ab->locus_tag();
-        
-        string::size_type idx = locus_tag.find(':');
-        if (idx != string::npos)
-        {
-            string chrom_name = locus_tag.substr(0, idx);
-            rt.get_id(chrom_name.c_str(), NULL); // make sure the chromosome names are added to the RefSequenceTable in the order that they occur in the expression files.
-        }
-    }
-    
-    return true;
-}
-
-boost::shared_ptr<const AbundanceGroup> PrecomputedExpressionHitFactory::get_abundance_for_locus(int locus_id)
-{
-#if ENABLE_THREADS
-    boost::mutex::scoped_lock lock(_factory_lock);
-#endif
-    map<int, boost::shared_ptr<const AbundanceGroup> >::const_iterator itr = _curr_ab_groups.find(locus_id);
-    if (itr != _curr_ab_groups.end())
-        return itr->second;
-    else
-        return boost::shared_ptr<const AbundanceGroup>();
-}
-
-void PrecomputedExpressionHitFactory::clear_abundance_for_locus(int locus_id)
-{
-#if ENABLE_THREADS
-    boost::mutex::scoped_lock lock(_factory_lock);
-#endif
-
-    map<int, boost::shared_ptr<const AbundanceGroup> >::iterator itr = _curr_ab_groups.find(locus_id);
-    
-    if (itr != _curr_ab_groups.end())
-        _curr_ab_groups.erase(itr);
-}
-
-boost::shared_ptr<const AbundanceGroup> PrecomputedExpressionHitFactory::next_locus(int locus_id, bool cache_locus)
-{
-#if ENABLE_THREADS
-    boost::mutex::scoped_lock lock(_factory_lock);
-#endif
-//    if (locus_id == 7130)
-//    {
-//        fprintf(stderr, "Trying to get a chr13_random\n");
-//    }
-    
-    if (_last_locus_id >= locus_id)
-        return boost::shared_ptr<const AbundanceGroup>(); // we already processed this one
-    
-    boost::shared_ptr<const AbundanceGroup> sought_group;
-    
-    map<int, boost::shared_ptr<const AbundanceGroup> >::iterator itr = _curr_ab_groups.find(locus_id);
-    
-    if (itr != _curr_ab_groups.end())
-        return itr->second;
-    
-    for (;_curr_locus_idx < _num_loci; ++_curr_locus_idx)
-    {
-        pair<int, AbundanceGroup> p;
-        *_ia >> p;
-        _last_locus_id = p.first;
-        boost::shared_ptr<AbundanceGroup> ab = boost::shared_ptr<AbundanceGroup>(new AbundanceGroup(p.second));
-        if (_last_locus_id == locus_id)
-        {
-            sought_group = ab;
-            break;
-        }
-        else // we don't want to lose this one...
-        {
-            if (cache_locus)
-                _curr_ab_groups[_last_locus_id] = ab;
-        }
-    }
-    if (cache_locus)
-        _curr_ab_groups[locus_id] = sought_group;
-    
-    return sought_group;
-}
-
-
-

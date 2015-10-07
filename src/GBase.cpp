@@ -1,6 +1,7 @@
 #include "GBase.h"
 #include <stdarg.h>
 #include <ctype.h>
+#include <sys/stat.h>
 
 #ifndef S_ISDIR
 #define S_ISDIR(mode)  (((mode) & S_IFMT) == S_IFDIR)
@@ -10,6 +11,7 @@
 #define S_ISREG(mode)  (((mode) & S_IFMT) == S_IFREG)
 #endif
 
+static char msg[4069];
 /*
 #ifdef _DEFINE_WIN32_FSEEKO
  int fseeko(FILE *stream, off_t offset, int whence) {
@@ -24,7 +26,7 @@
 #endif
 */
 
-/*
+
 int saprintf(char **retp, const char *fmt, ...) {
   va_list argp;
   int len;
@@ -47,32 +49,23 @@ int saprintf(char **retp, const char *fmt, ...) {
   *retp = buf;
   return len;
 }
-*/
 
 //************************* Debug helpers **************************
 // Assert failed routine
 void GAssert(const char* expression, const char* filename, unsigned int lineno){
-  char msg[4096];
   sprintf(msg,"%s(%d): ASSERT(%s) failed.\n",filename,lineno,expression);
   fprintf(stderr,"%s",msg);
-  #ifdef DEBUG
-  // modify here if you [don't] want a core dump
-    abort();
-  #endif
-  exit(1);
-}
-
+  //abort();
+  }
 // Error routine (prints error message and exits!)
 void GError(const char* format,...){
   #ifdef __WIN32__
-    char msg[4096];
     va_list arguments;
     va_start(arguments,format);
-    _vsnprintf(msg, 4095, format, arguments);
-    vfprintf(stderr, format, arguments); // if a console is available
-    msg[4095]=0;
+    vsprintf(msg,format,arguments);
     va_end(arguments);
     OutputDebugString(msg);
+    fprintf(stderr,"%s",msg); // if a console is available
     MessageBox(NULL,msg,NULL,MB_OK|MB_ICONEXCLAMATION|MB_APPLMODAL);
   #else
     va_list arguments;
@@ -80,7 +73,7 @@ void GError(const char* format,...){
     vfprintf(stderr,format,arguments);
     va_end(arguments);
     #ifdef DEBUG
-     // modify here if you [don't] want a core dump
+     // modify here if you want a core dump
      abort();
     #endif
   #endif
@@ -89,21 +82,14 @@ void GError(const char* format,...){
   
 // Warning routine (just print message without exiting)
 void GMessage(const char* format,...){
+  va_list arguments;
+  va_start(arguments,format);
+  vsprintf(msg,format,arguments);
+  va_end(arguments);
   #ifdef __WIN32__
-    char msg[4096];
-    va_list arguments;
-    va_start(arguments,format);
-    vfprintf(stderr, format , arguments); // if a console is available
-    _vsnprintf(msg, 4095, format, arguments);
-    msg[4095]=0;
-    va_end(arguments);
     OutputDebugString(msg);
-  #else
-    va_list arguments;
-    va_start(arguments,format);
-    vfprintf(stderr,format,arguments);
-    va_end(arguments);
   #endif
+  fprintf(stderr,"%s",msg);fflush(stderr);
   }
 
 /*************** Memory management routines *****************/
@@ -170,7 +156,7 @@ char* newEmptyStr() {
 char* Gstrdup(const char* sfrom, const char* sto) {
   if (sfrom==NULL || sto==NULL) return NULL;
   char *copy=NULL;
-  if (sfrom[0]==0 || sto<sfrom) return newEmptyStr();
+  if (sfrom[0]==0) return newEmptyStr();
   GMALLOC(copy, sto-sfrom+2);
   strncpy(copy, sfrom, sto-sfrom+1);
   copy[sto-sfrom+1]=0;
@@ -186,69 +172,6 @@ int Gstrcmp(const char* a, const char* b, int n) {
        else return strncmp(a,b,n);
  }
 
-}
-
-int G_mkdir(const char* path, int perms=0775) {
- #ifdef __WIN32__
-     return _mkdir(path);
- #else
- //#if _POSIX_C_SOURCE
- //    return ::mkdir(path);
- //#else
-     return mkdir(path, perms); // not sure if this works on mac
- //#endif
- #endif
-}
-
-
-int Gmkdir(const char *path, bool recursive, int perms) {
-	if (path==NULL || path[0]==0) return -1;
-	if (!recursive) return G_mkdir(path, perms);
-	int plen=strlen(path);
-	char* gpath=NULL;
-	//make sure gpath ends with /
-	if (path[plen-1]=='/') {
-		gpath=Gstrdup(path);
-	}
-	else {
-		GMALLOC(gpath, plen+2);
-		strcpy(gpath,path);
-		gpath[plen]='/';
-		gpath[plen+1]=0;
-	}
-	char* ss=gpath;
-	char* psep = NULL;
-	while (*ss!=0 && (psep=strchr(ss, '/'))!=NULL)  {
-		*psep=0; //now gpath is the path up to this /
-		ss=psep; ++ss; //ss repositioned just after the /
-		// create current level
-		if (fileExists(gpath)!=1 && G_mkdir(gpath, perms)!=0) {
-			GFREE(gpath);
-			return -1;
-		}
-		*psep='/';
-	}
-	GFREE(gpath);
-	return 0;
-}
-
-bool GstrEq(const char* a, const char* b) {
-	 if (a==NULL || b==NULL) return false;
-	 register int i=0;
-	 while (a[i]==b[i]) {
-		 if (a[i]==0) return true;
-		 ++i;
-	 }
-	 return false;
-}
-
-bool GstriEq(const char* a, const char* b) {
-	 if (a==NULL || b==NULL) return false;
-	 register int i=0;
-	 while (tolower((unsigned char)a[i])==tolower((unsigned char)b[i])) {
-		 if (a[i]==0) return true;
-	 }
-	 return false;
 }
 
 int Gstricmp(const char* a, const char* b, int n) {
@@ -360,7 +283,7 @@ char* Gsubstr(const char* str, char* from, char* to) {
     }
  if (to<from) return newEmptyStr();
  int newlen=to-from+1;
- char* subs=NULL;
+ char* subs;
  GMALLOC(subs, newlen);
  memcpy(subs, str, newlen-1);
  subs[newlen]='\0';
@@ -486,7 +409,7 @@ char* strchrs(const char* s, const char* chrs) {
 char* upCase(const char* str) {
  if (str==NULL) return NULL;
  int len=strlen(str);
- char* upstr=NULL;
+ char* upstr;
  GMALLOC(upstr, len+1);
  upstr[len]='\0';
  for (int i=0;i<len;i++) upstr[i]=toupper(str[i]);
@@ -496,7 +419,7 @@ char* upCase(const char* str) {
 char* loCase(const char* str) {
  if (str==NULL) return NULL;
  int len=strlen(str);
- char* lostr=NULL;
+ char* lostr;
  GMALLOC(lostr, len+1);
  lostr[len]='\0';
  for (int i=0;i<len;i++) lostr[i]=tolower(str[i]);
@@ -549,7 +472,7 @@ char* rstrfind(const char* str, const char* substr) {
 
 
 char* strifind(const char* str,  const char* substr) {
- // case insensitive version of strstr -- finding a string within another
+ // the case insensitive version of strstr -- finding a string within a strin
   int l,i;
   if (str==NULL || *str==0) return NULL;
   if (substr==NULL || *substr==0) return NULL;
@@ -559,7 +482,7 @@ char* strifind(const char* str,  const char* substr) {
   char* p=(char*)str;
   while (p<=smax) {
      for (i=0; i<l && tolower(*(p+i))==tolower(*(substr+i)); i++) ;
-     if (i==l) return p;
+     if (i==l) return p; //found!
      p++;
      }
   return NULL;
@@ -574,14 +497,6 @@ bool startsWith(const char* s, const char* prefix) {
  while (prefix[i]!='\0' && prefix[i]==s[i]) i++;
  return (prefix[i]=='\0');
  }
-
-bool startsiWith(const char* s, const char* prefix) {
- if (prefix==NULL || s==NULL) return false;
- int i=0;
- while (prefix[i]!='\0' && tolower(prefix[i])==tolower(s[i])) i++;
- return (prefix[i]=='\0');
- }
-
 
 // tests if string s ends with given suffix
 bool endsWith(const char* s, const char* suffix) {
@@ -835,18 +750,28 @@ void writeFasta(FILE *fw, const char* seqid, const char* descr,
   fflush(fw);
  }
 
-char* commaprintnum(uint64 n) {
-  int comma = ',';
-  char retbuf[48];
+char* commaprint(uint64 n) {
+  static int comma = '\0';
+  static char retbuf[48];
   char *p = &retbuf[sizeof(retbuf)-1];
   int i = 0;
+  if(comma == '\0') {
+    /* struct lconv *lcp = localeconv();
+    if(lcp != NULL) {
+      if(lcp->thousands_sep != NULL &&
+        *lcp->thousands_sep != '\0')
+        comma = *lcp->thousands_sep;
+      else  */
+                          comma = ',';
+     // }
+    }
   *p = '\0';
   do {
     if(i%3 == 0 && i != 0)
-        *--p = comma;
+      *--p = comma;
     *--p = '0' + n % 10;
     n /= 10;
     i++;
   } while(n != 0);
-  return Gstrdup(p);
+  return p;
 }

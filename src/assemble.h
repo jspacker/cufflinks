@@ -23,7 +23,7 @@
 
 class BiasLearner;
 
-bool assemble_hits(BundleFactory& bundle_factory, boost::shared_ptr<BiasLearner> bl_ptr);
+bool assemble_hits(BundleFactory& bundle_factory, shared_ptr<BiasLearner> bl_ptr);
 
 //bool intron_compatible(const MateHit& lhs, const MateHit& rhs);
 bool read_hits_overlap(const ReadHit* lhs, const ReadHit* rhs);
@@ -39,6 +39,7 @@ bool mate_graphs(const HitBundle& bundle, BundleStats* stats);
 bool make_scaffolds(int bundle_left,
 					int bundle_length,
 					vector<Scaffold>& hits,
-					vector<Scaffold>& scaffolds);
+					vector<Scaffold>& scaffolds,
+					const bool allele = false);
 
 #endif

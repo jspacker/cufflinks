@@ -7,6 +7,13 @@
  *
  */
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#else
+#define PACKAGE_VERSION "INTERNAL"
+#define SVN_REVISION "XXX"
+#endif
+
 #include <stdlib.h>
 #include <getopt.h>
 #include <string>
@@ -215,7 +222,7 @@ void assign_to_nearest_cluster(vector<ExprRecord>& expr_records, vector<ClusterS
     int num_clusters = clusters.size();
     int num_conditions = expr_records.front().cond_density.size();
     
-    BOOST_FOREACH(ClusterStats& c, clusters)
+    foreach(ClusterStats& c, clusters)
     {
         c.members.clear();
     }
@@ -273,7 +280,7 @@ void assign_to_nearest_cluster(vector<ExprRecord>& expr_records, vector<ClusterS
     for (size_t c = 0; c < clusters.size(); ++c)
     {
         ClusterStats& cluster = clusters[c];
-        BOOST_FOREACH(int m, cluster.members)
+        foreach(int m, cluster.members)
         {
             tmp_means[c] += expr_records[m].cond_density;
         }
@@ -297,7 +304,7 @@ void assign_to_nearest_cluster(vector<ExprRecord>& expr_records, vector<ClusterS
         vector<ublas::vector<double> >  kappas;
         kappas.push_back(cluster.mean);
         kappas.push_back(ublas::zero_vector<double>());
-        BOOST_FOREACH (int m, cluster.members)
+        foreach (int m, cluster.members)
         {
             kappas[1] = expr_records[m].cond_density;
             double js = jensen_shannon_distance(kappas);
@@ -311,7 +318,7 @@ void assign_to_nearest_cluster(vector<ExprRecord>& expr_records, vector<ClusterS
 void get_assignments(const vector<ClusterStats>& clusters, 
                      vector<int>& assignments)
 {
-    BOOST_FOREACH (int& i, assignments)
+    foreach (int& i, assignments)
     {
         i = -1;
     }

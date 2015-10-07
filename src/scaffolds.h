@@ -207,7 +207,10 @@ public:
 		_is_ref(false),
 		_strand(CUFF_STRAND_UNKNOWN), 
 		_classcode(0),
-        _fpkm(0.0) {}
+        _fpkm(0.0),
+		_paternal_fpkm(0.0),//nimrod
+		_maternal_fpkm(0.0)
+		{}
 	
 	Scaffold(const MateHit& mate) :
 		_ref_id(mate.ref_id()),
@@ -295,6 +298,11 @@ public:
         {
             double avg_fpkm = mate.mass();
             fpkm(avg_fpkm);
+			//nimrod
+			double avg_paternal_mass,avg_maternal_mass;
+			mate.parental_masses(avg_paternal_mass,avg_maternal_mass);
+			paternal_fpkm(avg_paternal_mass);
+			maternal_fpkm(avg_maternal_mass);
         }
 	}
 	
@@ -314,18 +322,26 @@ public:
         if (library_type == "transfrags")
         {
             double avg_fpkm = 0.0;
-            BOOST_FOREACH (const Scaffold& sc, hits)
+			//nimrod
+			double avg_paternal_fpkm = 0.0;
+			double avg_maternal_fpkm = 0.0;
+            foreach (const Scaffold& sc, hits)
             {
                 avg_fpkm += sc.fpkm();
+				//nimrod
+				avg_paternal_fpkm += sc.paternal_fpkm();
+				avg_maternal_fpkm += sc.maternal_fpkm();
             }
             avg_fpkm /= hits.size();
-            fpkm(avg_fpkm);
+            //nimrod
+			avg_paternal_fpkm /= hits.size();
+			avg_maternal_fpkm /= hits.size();
         }
 	}
 	
 	// For manually constructing scaffolds, for example when a reference is 
 	// available
-	Scaffold(RefID ref_id, CuffStrand strand, const vector<AugmentedCuffOp>& ops, bool is_ref = false, bool is_pseudo_primary = false)
+	Scaffold(RefID ref_id, CuffStrand strand, const vector<AugmentedCuffOp>& ops, bool is_ref = false)
 	: _ref_id(ref_id), 
 	  _augmented_ops(ops), 
 	  _strand(strand),
@@ -333,7 +349,6 @@ public:
 	{
 		_has_intron = has_intron(*this);
 		_is_ref = is_ref;
-        _is_pseudo_primary = is_pseudo_primary;
 		
 		assert(!has_strand_support() || _strand != CUFF_STRAND_UNKNOWN);
 
@@ -369,14 +384,14 @@ public:
 	const string& nearest_ref_id() const { return _nearest_ref_id; }
 	void nearest_ref_id(const string& ann_name) { _nearest_ref_id = ann_name; }	
 	
-    // fpkm() and num_fragments() are just used to cache values in scaffolds across
-    // multiple estimation runs (e.g. for use with bias correction
 	double fpkm() const {return _fpkm; }
 	void fpkm(double fpkm) { _fpkm = fpkm; }
-    
-    double num_fragments() const {return _num_fragments; }
-	void num_fragments(double nf) { _num_fragments = nf; }
- 
+	//nimrod
+	double paternal_fpkm() const {return _paternal_fpkm; }
+	double maternal_fpkm() const {return _maternal_fpkm; }
+	void paternal_fpkm(double fpkm) { _paternal_fpkm = fpkm; }
+	void maternal_fpkm(double fpkm) { _maternal_fpkm = fpkm; }
+	
 	const string& seq() const { return _seq; } 
 	void seq(const string& s) {	_seq = s; } 
 	
@@ -406,9 +421,9 @@ public:
     
     // returns true if the scaffold strand is supported with reads or exon overlap with
     // a reference scaffold of known strand (since the scaffold may have been created with faux reads)
-    bool has_strand_support(vector<boost::shared_ptr<Scaffold> >* ref_scaffs = NULL) const;
-    
-    // returns true if all introns are supported with splice reads, false ow
+    bool has_strand_support(vector<shared_ptr<Scaffold> >* ref_scaffs = NULL) const;
+	
+	// returns true if all introns are supported with splice reads, false ow
     bool hits_support_introns() const; 
     bool hits_support_introns(set<AugmentedCuffOp>& hit_introns) const; 
 
@@ -417,9 +432,6 @@ public:
     
 	bool is_ref() const { return _is_ref; }
 	void is_ref(bool ir) { _is_ref = ir; }
-    
-    bool is_pseudo_primary() const { return _is_pseudo_primary; }
-	void is_pseudo_primary(bool ip) { _is_pseudo_primary = ip; }
 	
 	CuffStrand strand() const 
     { 
@@ -648,8 +660,8 @@ private:
 							const vector<pair<int, int> >& inners);
 	
 	static bool compatible_contigs(const Scaffold& lhs, 
-											const Scaffold& rhs,
-											int overhang_tolerance = bowtie_overhang_tolerance);
+								   const Scaffold& rhs,
+								   int overhang_tolerance = bowtie_overhang_tolerance);
 	
 	
 	typedef vector<AugmentedCuffOp> OpList;
@@ -668,7 +680,6 @@ private:
 	
 	bool _has_intron; 
 	bool _is_ref;
-    bool _is_pseudo_primary;
 	
 	vector<AugmentedCuffOp> _augmented_ops;
 	CuffStrand _strand;
@@ -683,22 +694,25 @@ private:
 	
 	string _seq;
 	double _fpkm;
-	double _num_fragments;
+	//nimrod
+	double _paternal_fpkm;
+	double _maternal_fpkm;
+
 };
 
 bool scaff_lt(const Scaffold& lhs, const Scaffold& rhs);
 bool scaff_lt_rt(const Scaffold& lhs, const Scaffold& rhs);
 bool scaff_lt_rt_oplt(const Scaffold& lhs, const Scaffold& rhs);
-bool scaff_lt_sp(boost::shared_ptr<Scaffold> lhs, boost::shared_ptr<Scaffold> rhs);
-bool scaff_lt_rt_sp(boost::shared_ptr<Scaffold> lhs, boost::shared_ptr<Scaffold> rhs);
-bool scaff_lt_rt_oplt_sp(boost::shared_ptr<Scaffold> lhs, boost::shared_ptr<Scaffold> rhs);
+bool scaff_lt_sp(shared_ptr<Scaffold> lhs, shared_ptr<Scaffold> rhs);
+bool scaff_lt_rt_sp(shared_ptr<Scaffold> lhs, shared_ptr<Scaffold> rhs);
+bool scaff_lt_rt_oplt_sp(shared_ptr<Scaffold> lhs, shared_ptr<Scaffold> rhs);
 
 
 bool overlap_in_genome(int ll, int lr, int rl, int rr);
 
 struct StructurallyEqualScaffolds
 {
-	bool operator()(boost::shared_ptr<Scaffold> lhs, boost::shared_ptr<Scaffold> rhs)
+	bool operator()(shared_ptr<Scaffold> lhs, shared_ptr<Scaffold> rhs)
 	{
 		return lhs->ref_id() == rhs->ref_id() && 
 		lhs->augmented_ops() == rhs->augmented_ops();

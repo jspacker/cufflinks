@@ -10,19 +10,10 @@ echo "packing up $1.tar.gz, using boost in $2, linking against $3 and using BAM 
 mkdir $1
 #make clean
 make distclean
-if [[ $(uname) = "Darwin" ]]
-then
-    export CFLAGS="-mmacosx-version-min=10.7 -stdlib=libc++"
-    export LDFLAGS="-stdlib=libc++"
-elif [ $(uname -m) = "x86_64"]
-then
-    echo "Linking statically on x86_64 (only for gcc 4.5+).."
-    export LDFLAGS="-static-libgcc -static-libstdc++"
-else
-    echo "Unrecognized architecture"
-fi
-
-
+if [[ $(uname -m) = "x86_64" ]]; then
+echo "Linking statically on x86_64 (only for gcc 4.5+).."
+export LDFLAGS="-static-libgcc -static-libstdc++"
+fi 
 l2="$2"
 l3="$3"
 if [[ -z "$l3" ]]; then
@@ -39,7 +30,7 @@ fi
 
 
 #./configure --enable-intel64 --with-boost=$l2 --with-boost-thread=$l3 --with-bam=$l4 --with-eigen=$l5
-./configure --with-boost=$l2 --with-boost-thread=$l2/lib/libboost_thread.a --with-boost-system=$l2/lib/libboost_system.a --with-bam=$l3 --with-eigen=$l4 --with-boost-serialization=$l2/lib/libboost_serialization.a
+./configure --with-boost=$l2 --with-boost-thread=$l2/lib/libboost_thread.a --with-bam=$l3 --with-eigen=$l4
 make
 cp src/cufflinks $1
 cp src/cuffcompare $1
@@ -47,8 +38,6 @@ cp src/cuffdiff $1
 cp src/cuffmerge $1/cuffmerge
 cp src/gffread $1
 cp src/gtf_to_sam $1
-cp src/cuffnorm $1
-cp src/cuffquant $1
 cp README $1
 cp LICENSE $1
 cp AUTHORS $1

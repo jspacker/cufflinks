@@ -65,7 +65,7 @@ void ones(ublas::matrix<long double>& A)
 			A(i,j) = 1;
 }
 
-void get_compatibility_list(const vector<boost::shared_ptr<Scaffold> >& transcripts,
+void get_compatibility_list(const vector<shared_ptr<Scaffold> >& transcripts,
                             const vector<MateHit>& alignments,
                             vector<list<int> >& compatibilities)
 {
@@ -107,7 +107,7 @@ void learn_bias(BundleFactory& bundle_factory, BiasLearner& bl, bool progress_ba
 	{
 		HitBundle* bundle_ptr = new HitBundle();
 		
-		if (!bundle_factory.next_bundle(*bundle_ptr, false))
+		if (!bundle_factory.next_bundle(*bundle_ptr))
 		{
 			delete bundle_ptr;
 			break;
@@ -141,8 +141,8 @@ void learn_bias(BundleFactory& bundle_factory, BiasLearner& bl, bool progress_ba
 		
 	bl.normalizeParameters();
     
-//    if (output_bias_params)
-//        bl.output();
+    if (output_bias_params)
+        bl.output();
 }
 
 const int BiasLearner::pow4[] = {1,4,16,64};
@@ -155,7 +155,7 @@ const int BiasLearner::_n = 64; //Length of maximum connection in VLMM
 const int BiasLearner::lengthBins[] = {791,1265,1707,2433}; //Quantiles derived from human mRNA length distribution in UCSC genome browser
 const double BiasLearner::positionBins[] = {.02,.04,.06,.08,.10,.15,.2,.3,.4,.5,.6,.7,.8,.85,.9,.92,.94,.96,.98,1};
 
-BiasLearner::BiasLearner(boost::shared_ptr<EmpDist const> frag_len_dist)
+BiasLearner::BiasLearner(shared_ptr<EmpDist const> frag_len_dist)
 {
 	paramTypes = vlmmSpec;
 	if (bias_mode==SITE || bias_mode==POS_SITE)
@@ -204,15 +204,22 @@ inline void BiasLearner::getSlice(const char* seq, char* slice, int start, int e
 	}
 }
 
-void BiasLearner::preProcessTranscript(const Scaffold& transcript)
+void BiasLearner::preProcessTranscript(const Scaffold& transcript, const bool allele)
 {
-	if (transcript.strand()==CUFF_STRAND_UNKNOWN || transcript.fpkm() < 1 || transcript.seq()=="")
-		return;
+	if(!allele)
+	{
+		if (transcript.strand()==CUFF_STRAND_UNKNOWN || transcript.fpkm() < 1 || transcript.seq()=="")
+			return;
+	}
+	else{
+		if (transcript.strand()==CUFF_STRAND_UNKNOWN || (transcript.paternal_fpkm()+transcript.maternal_fpkm()) < 1 || transcript.seq()=="")
+			return;
+	}
 		
 	vector<double> startHist(transcript.length()+1, 0.0); // +1 catches overhangs
 	vector<double> endHist(transcript.length()+1, 0.0);
 
-	BOOST_FOREACH (const MateHit* hit_p, transcript.mate_hits())
+	foreach (const MateHit* hit_p, transcript.mate_hits())
 	{
 		const MateHit& hit = *hit_p;
 		if (!hit.left_alignment() && !hit.right_alignment())
@@ -228,13 +235,18 @@ void BiasLearner::preProcessTranscript(const Scaffold& transcript)
 		startHist[start] += mass;
 		endHist[end] += mass;
 	}
-	processTranscript(startHist, endHist, transcript);
+	processTranscript(startHist, endHist, transcript, allele);
 }
 
-
-void BiasLearner::processTranscript(const std::vector<double>& startHist, const std::vector<double>& endHist, const Scaffold& transcript)
+void BiasLearner::processTranscript(const std::vector<double>& startHist, const std::vector<double>& endHist, const Scaffold& transcript, const bool allele)
 {
-	double fpkm = transcript.fpkm();
+	double fpkm;
+	if(!allele){
+		fpkm = transcript.fpkm();
+	}
+	else{
+		fpkm = transcript.paternal_fpkm()+transcript.maternal_fpkm();
+	}
 	int seqLen = transcript.length();
 	
 	char seq[seqLen];
@@ -574,48 +586,53 @@ void BiasLearner::normalizeParameters()
 	}
 }
 
-void BiasLearner::output(FILE* output_file, const string& condition_name, int replicate_num) const
+void BiasLearner::output()
 {
+	ofstream myfile1;
+	string filename = output_dir + "/biasParams.csv";
+	myfile1.open (filename.c_str());
+	
 	// StartSeq
 	for (int i = 0; i < _n; ++i)
 	{
 		for(int j = 0; j < _m; ++j)
-        {
-			fprintf(output_file, "%s\t%d\tstart_seq\t%d\t%d\t%Lg\n",condition_name.c_str(), replicate_num, i, j,  _startSeqParams(j,i));
-        }
+			myfile1 << _startSeqParams(j,i) <<",";
+		myfile1 << endl;
 	}
-
-    // EndSeq
-    for (int i = 0; i < _n; ++i)
-    {
-        for(int j = 0; j < _m; ++j)
-        {
-            fprintf(output_file, "%s\t%d\tend_seq\t%d\t%d\t%Lg\n",condition_name.c_str(), replicate_num, i, j,  _startSeqParams(j,i));
-        }
-    }
-
+	myfile1 << endl;
+	
+	// EndSeq
+	for (int i = 0; i < _n; ++i)
+	{
+		for(int j = 0; j < _m; ++j)
+			myfile1 << _endSeqParams(j,i) <<",";
+		myfile1 << endl;
+	}
+	myfile1 << endl;
+	
 	// Start Pos
 	for (size_t i = 0; i < _startPosParams.size2(); ++i)
 	{
 		for(size_t j = 0; j < _startPosParams.size1(); ++j)
-        {
-			fprintf(output_file, "%s\t%d\tstart_pos\t%lu\t%lu\t%Lg\n",condition_name.c_str(), replicate_num, i, j,  _startPosParams(j,i));
-        }
+			myfile1 << _startPosParams(j,i) <<",";
+		myfile1 <<endl;
 	}
-
+	myfile1 << endl;	
+	
 	// End Pos
 	for (size_t i = 0; i < _endPosParams.size2(); ++i)
 	{
 		for(size_t j = 0; j < _endPosParams.size1(); ++j)
-        {
-			fprintf(output_file, "%s\t%d\tend_pos\t%lu\t%lu\t%Lg\n",condition_name.c_str(), replicate_num, i, j,  _endPosParams(j,i));
-        }
+			myfile1 << _endPosParams(j,i) <<",";
+		myfile1 <<endl;
 	}
+	
+	myfile1.close();
 }
 
 
 
-int BiasCorrectionHelper::add_read_group(boost::shared_ptr<ReadGroupProperties const> rgp)
+int BiasCorrectionHelper::add_read_group(shared_ptr<ReadGroupProperties const> rgp)
 {
 	int trans_len = _transcript->length();
 	_rg_index.insert(make_pair(rgp, _size));
@@ -625,7 +642,7 @@ int BiasCorrectionHelper::add_read_group(boost::shared_ptr<ReadGroupProperties c
 	vector<double> end_bias(trans_len+1, 1.0);
 	double eff_len = 0.0;
 	
-	boost::shared_ptr<EmpDist const> fld = rgp->frag_len_dist();
+	shared_ptr<EmpDist const> fld = rgp->frag_len_dist();
 	
 	vector<double> tot_bias_for_len(trans_len+1, 0);
 	vector<double> start_bias_for_len(trans_len+1, 0);
@@ -660,7 +677,7 @@ int BiasCorrectionHelper::add_read_group(boost::shared_ptr<ReadGroupProperties c
 			tot_bias_for_len[l] = trans_len - l + 1;
 			start_bias_for_len[l] = trans_len - l + 1;
 			end_bias_for_len[l] = trans_len - l + 1;
-			eff_len += fld->npdf(l, trans_len) * (trans_len - l + 1);
+			eff_len += fld->pdf(l) * (trans_len - l + 1);
 		}
 	}
 	
@@ -677,9 +694,9 @@ int BiasCorrectionHelper::add_read_group(boost::shared_ptr<ReadGroupProperties c
 }
 
 int num_adds = 0;
-int BiasCorrectionHelper::get_index(boost::shared_ptr<ReadGroupProperties const> rgp)
+int BiasCorrectionHelper::get_index(shared_ptr<ReadGroupProperties const> rgp)
 {
-    boost::unordered_map<boost::shared_ptr<ReadGroupProperties const>, int>::iterator iter;
+    boost::unordered_map<shared_ptr<ReadGroupProperties const>, int>::iterator iter;
 	iter = _rg_index.find(rgp);
 	
 	if (iter==_rg_index.end()) //This rg is not yet in the index, so add it.
@@ -694,7 +711,7 @@ int BiasCorrectionHelper::get_index(boost::shared_ptr<ReadGroupProperties const>
 // Hit needs to be from the collapsed (non_redundant) list to match indexing 
 double BiasCorrectionHelper::get_cond_prob(const MateHit& hit)
 {
-	boost::shared_ptr<ReadGroupProperties const> rgp = hit.read_group_props();
+	shared_ptr<ReadGroupProperties const> rgp = hit.read_group_props();
 	
 	int i = get_index(rgp);
 	
@@ -705,7 +722,7 @@ double BiasCorrectionHelper::get_cond_prob(const MateHit& hit)
 	
 	_transcript->map_frag(hit, start, end, frag_len);
 
-	boost::shared_ptr<const EmpDist> fld = rgp->frag_len_dist();
+	shared_ptr<const EmpDist> fld = rgp->frag_len_dist();
 	
 	double cond_prob = 1.0;
 	cond_prob *= _start_biases[i][start];
@@ -805,9 +822,6 @@ double BiasCorrectionHelper::get_effective_length()
 
     if (no_effective_length_correction)
         return _transcript->length();
-    
-    if (no_length_correction)
-        return 1;
 	
 	double tot_mass = accumulate( _rg_masses.begin(), _rg_masses.end(), 0.0 );
 	double eff_len = 0.0;
@@ -815,7 +829,7 @@ double BiasCorrectionHelper::get_effective_length()
 	if (tot_mass==0)
 		return _transcript->length();
 	
-    for (boost::unordered_map<boost::shared_ptr<ReadGroupProperties const>, int>::iterator itr = _rg_index.begin();
+    for (boost::unordered_map<shared_ptr<ReadGroupProperties const>, int>::iterator itr = _rg_index.begin();
          itr != _rg_index.end();
          ++itr)
 	{

@@ -11,16 +11,16 @@
 * indexed by a character string (essentially, maps strings to pointers)
 */
 
+typedef struct {
+     char*   key;              // Key string
+     bool    keyalloc;         //shared key flag (to not free the key chars)
+     int     hash;             // Hash value of key
+     pointer data;              // Data
+     bool    mark;             // Entry is marked
+     } GHashEntry;
 
-template <class OBJ> class GHash {
+template <class OBJ> class  GHash {
  protected:
-	struct GHashEntry {
-	     char*   key;              // Key string
-	     bool    keyalloc;         //shared key flag (to not free the key chars)
-	     int     hash;             // Hash value of key
-	     pointer data;              // Data
-	     bool    mark;             // Entry is marked
-	     };
   GHashEntry* hash;         // Hash
   int         fCapacity;     // table size
   int         fCount;        // number of valid entries
@@ -53,6 +53,7 @@ protected:
 public:
   static void DefaultFreeProc(pointer item) {
       delete (OBJ*)item;
+      item=NULL;
       }
 public:
   GHash(GFreeProc* freeProc); // constructs of an empty hash
@@ -86,18 +87,8 @@ public:
   OBJ* NextData(char*& nextkey); //returns next valid hash[].data
                                 //or NULL if no more
                                 //nextkey is SET to the corresponding key
-  GHashEntry* NextEntry() { //returns a pointer to a GHashEntry
-  	 register int pos=fCurrentEntry;
-  	 while (pos<fCapacity && hash[pos].hash<0) pos++;
-  	 if (pos==fCapacity) {
-  	                 fCurrentEntry=fCapacity;
-  	                 return NULL;
-  	                 }
-  	              else {
-  	                 fCurrentEntry=pos+1;
-  	                 return &hash[pos];
-  	                 }
-  }
+  GHashEntry* NextEntry(); //returns a pointer to a GHashEntry
+
   /// Clear all entries
   void Clear();
 
@@ -326,7 +317,6 @@ template <class OBJ>  OBJ* GHash<OBJ>::Replace(const char* ky,const OBJ* pdata, 
 template <class OBJ> OBJ* GHash<OBJ>::Remove(const char* ky){
   register int p,x,h,n;
   if(!ky){ GError("GHash::remove: NULL key argument.\n"); }
-  OBJ* removed=NULL;
   if(0<fCount){
     h=strhash(ky);
     GASSERT(0<=h);
@@ -343,19 +333,18 @@ template <class OBJ> OBJ* GHash<OBJ>::Remove(const char* ky){
         hash[p].mark=false;
         if (hash[p].keyalloc) GFREE((hash[p].key));
         if (FREEDATA) (*fFreeProc)(hash[p].data);
-            else removed=(OBJ*)hash[p].data;
         hash[p].key=NULL;
         hash[p].data=NULL;
         fCount--;
         if((100*fCount)<=(MIN_LOAD*fCapacity)) Resize(fCount);
         GASSERT(fCount<fCapacity);
-        return removed;
+        return NULL;
         }
       p=(p+x)%fCapacity;
       n--;
       }
     }
-  return removed;
+  return NULL;
   }
 
 
@@ -453,6 +442,19 @@ template <class OBJ> OBJ* GHash<OBJ>::NextData(char* &nextkey) {
                  return (OBJ*)hash[pos].data;
                  }
 
+}
+
+template <class OBJ> GHashEntry* GHash<OBJ>::NextEntry() {
+ register int pos=fCurrentEntry;
+ while (pos<fCapacity && hash[pos].hash<0) pos++;
+ if (pos==fCapacity) {
+                 fCurrentEntry=fCapacity;
+                 return NULL;
+                 }
+              else {
+                 fCurrentEntry=pos+1;
+                 return &hash[pos];
+                 }
 }
 
 

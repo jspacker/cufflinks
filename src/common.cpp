@@ -54,9 +54,6 @@ int max_partner_dist = 50000;
 uint32_t max_gene_length = 3500000;
 std::string ref_gtf_filename = "";
 std::string mask_gtf_filename = "";
-std::string contrast_filename = "";
-bool use_sample_sheet = false;
-std::string norm_standards_filename = "";
 std::string output_dir = "./";
 std::string fasta_dir;
 string default_library_type = "fr-unstranded";
@@ -66,7 +63,8 @@ string library_type = default_library_type;
 // Abundance estimation options
 bool corr_bias = false;
 bool corr_multi = false;
-
+bool use_quartile_norm = false;
+bool poisson_dispersion = false;
 BiasMode bias_mode = VLMM;
 int def_frag_len_mean = 200;
 int def_frag_len_std_dev = 80;
@@ -78,7 +76,8 @@ int max_mle_iterations = 5000;
 int num_importance_samples = 10000;
 bool use_compat_mass = false;
 bool use_total_mass = false;
-bool model_mle_error = false;
+bool allele_specific_abundance_estimation = false;
+int min_allele_reads = 10;
 
 // Ref-guided assembly options
 int overhang_3 = 600;
@@ -103,27 +102,28 @@ double trim_3_dropoff_frac = .1;
 double trim_3_avgcov_thresh = 10.0;
 std::string user_label = "CUFF";
 
+bool use_em = true;
 bool cond_prob_collapse = true;
 
 bool emit_count_tables = false;
 bool use_fisher_covariance = true;
 bool split_variance = false;
-
+bool bootstrap = true;
+int num_bootstrap_samples = 20;
+double bootstrap_fraction = 1.0;
+double bootstrap_delta_gap = 0.001;
 int max_frags_per_bundle = 1000000;
 //bool analytic_diff = false;
 bool no_differential = false;
-double num_frag_count_draws = 100;
-double num_frag_assignments = 50;
+double num_frag_count_draws = 1000;
+double num_frag_assignments = 1;
 double max_multiread_fraction = 0.75;
 double max_frag_multihits = 10000000;
 int min_reps_for_js_test = 3;
 bool no_effective_length_correction = false;
 bool no_length_correction = false;
 bool no_js_tests = false;
-
-bool no_scv_correction = false;
-
-double min_outlier_p = 0.0001;
+bool allele_specific_differential = false;
 
 
 // SECRET OPTIONS: 
@@ -132,7 +132,7 @@ double min_outlier_p = 0.0001;
 float read_skip_fraction = 0.0;
 bool no_read_pairs = false;
 int trim_read_length = -1;
-double mle_accuracy = 1e-5;
+double mle_accuracy = 1e-6;
 
 
 
@@ -145,23 +145,6 @@ std::string cmd_str;
 
 map<string, ReadGroupProperties> library_type_table;
 const ReadGroupProperties* global_read_properties = NULL;
-
-map<string, DispersionMethod> dispersion_method_table;
-string default_dispersion_method = "pooled";
-DispersionMethod dispersion_method = DISP_NOT_SET;
-
-map<string, LibNormalizationMethod> lib_norm_method_table;
-string default_lib_norm_method = "geometric";
-string default_cufflinks_lib_norm_method = "classic-fpkm";
-LibNormalizationMethod lib_norm_method = LIB_NORM_NOT_SET;
-
-boost::shared_ptr<const std::map<std::string, LibNormStandards> > lib_norm_standards;
-
-// Output format table for Cuffnorm:
-map<string, OutputFormat> output_format_table;
-string default_output_format = "simple-table"; // note: the default is only for cuffnorm, Cuffdiff always uess the cuffdiff format
-OutputFormat output_format = OUTPUT_FMT_NOT_SET;
-
 
 #if ENABLE_THREADS
 boost::thread_specific_ptr<std::string> bundle_label;
@@ -303,7 +286,9 @@ void init_library_table()
 	fr_unstranded.mate_strand_mapping(FR);
     fr_unstranded.std_mate_orientation(MATES_POINT_TOWARD);
     fr_unstranded.strandedness(UNSTRANDED_PROTOCOL);
-    
+	//Nimrod
+	fr_unstranded.phase(UNPHASED);
+	    
     library_type_table["fr-unstranded"] = fr_unstranded;
         	
 	ReadGroupProperties fr_firststrand;
@@ -311,6 +296,8 @@ void init_library_table()
 	fr_firststrand.mate_strand_mapping(RF);
     fr_firststrand.std_mate_orientation(MATES_POINT_TOWARD);
     fr_firststrand.strandedness(STRANDED_PROTOCOL);
+	//Nimrod
+	fr_firststrand.phase(UNPHASED);
 	
     library_type_table["fr-firststrand"] = fr_firststrand;
 
@@ -319,6 +306,8 @@ void init_library_table()
 	fr_secondstrand.mate_strand_mapping(FR);
     fr_secondstrand.std_mate_orientation(MATES_POINT_TOWARD);
     fr_secondstrand.strandedness(STRANDED_PROTOCOL);
+	//Nimrod
+	fr_secondstrand.phase(UNPHASED);
 	
     library_type_table["fr-secondstrand"] = fr_secondstrand;
 	
@@ -327,7 +316,9 @@ void init_library_table()
 	ff_unstranded.mate_strand_mapping(FF);
     ff_unstranded.std_mate_orientation(MATES_POINT_TOWARD);
     ff_unstranded.strandedness(UNSTRANDED_PROTOCOL);
-    
+    //Nimrod
+	ff_unstranded.phase(UNPHASED);
+	
     library_type_table["ff-unstranded"] = ff_unstranded;
 	
 	ReadGroupProperties ff_firststrand;
@@ -335,6 +326,8 @@ void init_library_table()
 	ff_firststrand.mate_strand_mapping(FF);
     ff_firststrand.std_mate_orientation(MATES_POINT_TOWARD);
     ff_firststrand.strandedness(STRANDED_PROTOCOL);
+	//Nimrod
+	ff_firststrand.phase(UNPHASED);
 	
     library_type_table["ff-firststrand"] = ff_firststrand;
 	
@@ -343,6 +336,8 @@ void init_library_table()
 	ff_secondstrand.mate_strand_mapping(RR);
     ff_secondstrand.std_mate_orientation(MATES_POINT_TOWARD);
     ff_secondstrand.strandedness(STRANDED_PROTOCOL);
+	//Nimrod
+	ff_secondstrand.phase(UNPHASED);
 	
     library_type_table["ff-secondstrand"] = ff_secondstrand;
     
@@ -352,7 +347,9 @@ void init_library_table()
     transfrags.std_mate_orientation(MATES_POINT_TOWARD);
     transfrags.strandedness(UNSTRANDED_PROTOCOL);
 	transfrags.complete_fragments(true);
-    
+    //Nimrod
+	transfrags.phase(UNPHASED);
+	
     library_type_table["transfrags"] = transfrags;
 	
     //global_read_properties = &(library_type_table.find(default_library_type)->second);
@@ -369,100 +366,12 @@ void print_library_table()
         {
             fprintf(stderr, "\t%s (default)\n", itr->first.c_str());
         }
-        else            
-        {
-            fprintf(stderr, "\t%s\n", itr->first.c_str());
-        }
-    }
-}
-
-void init_dispersion_method_table()
-{
-    dispersion_method_table["pooled"] = POOLED;
-    dispersion_method_table["blind"] = BLIND;
-    dispersion_method_table["per-condition"] = PER_CONDITION;
-    dispersion_method_table["poisson"] = POISSON;
-}
-
-void print_dispersion_method_table()
-{
-    fprintf (stderr, "\nSupported dispersion methods:\n");
-    for (map<string, DispersionMethod>::const_iterator itr = dispersion_method_table.begin();
-         itr != dispersion_method_table.end();
-         ++itr)
-    {
-        if (itr->first == default_dispersion_method)
-        {
-            fprintf(stderr, "\t%s (default)\n", itr->first.c_str());
-        }
         else
         {
             fprintf(stderr, "\t%s\n", itr->first.c_str());
         }
     }
 }
-
-
-void init_lib_norm_method_table()
-{
-    lib_norm_method_table["geometric"] = GEOMETRIC;
-    lib_norm_method_table["classic-fpkm"] = CLASSIC_FPKM;
-    lib_norm_method_table["quartile"] = QUARTILE;
-}
-
-void init_cufflinks_lib_norm_method_table()
-{
-    lib_norm_method_table["classic-fpkm"] = CLASSIC_FPKM;
-    //lib_norm_method_table["quartile"] = QUARTILE;
-    //lib_norm_method_table["absolute"] = ABSOLUTE;
-}
-
-
-void print_lib_norm_method_table()
-{
-    fprintf (stderr, "\nSupported library normalization methods:\n");
-    for (map<string, LibNormalizationMethod>::const_iterator itr = lib_norm_method_table.begin();
-         itr != lib_norm_method_table.end();
-         ++itr)
-    {
-        if (itr->first == default_lib_norm_method)
-        {
-            fprintf(stderr, "\t%s (default)\n", itr->first.c_str());
-        }
-        else if(itr->first == "estimated-absolute") // hide this one for now.
-        {
-            continue;
-        }
-        {
-            fprintf(stderr, "\t%s\n", itr->first.c_str());
-        }
-    }
-}
-
-void init_output_format_table()
-{
-    output_format_table["cuffdiff"] = CUFFDIFF_OUTPUT_FMT;
-    output_format_table["simple-table"] = SIMPLE_TABLE_OUTPUT_FMT;
-}
-
-void print_output_format_table()
-{
-    fprintf (stderr, "\nSupported output formats:\n");
-    for (map<string, OutputFormat>::const_iterator itr = output_format_table.begin();
-         itr != output_format_table.end();
-         ++itr)
-    {
-        if (itr->first == default_output_format)
-        {
-            fprintf(stderr, "\t%s (default)\n", itr->first.c_str());
-        }
-        else
-        {
-            fprintf(stderr, "\t%s\n", itr->first.c_str());
-        }
-    }
-}
-
 
 
 // c_seq is complement, *NOT* REVERSE complement
@@ -495,7 +404,8 @@ ReadGroupProperties::ReadGroupProperties() :
     _norm_map_mass(0.0),
     _internal_scale_factor(1.0),
     _external_scale_factor(1.0),
-    _complete_fragments(false)
+    _complete_fragments(false),
+	_phase(UNPHASED)
 {
     _mass_dispersion_model = boost::shared_ptr<MassDispersionModel const>(new PoissonDispersionModel(""));
 } 
