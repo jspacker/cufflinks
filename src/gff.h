@@ -829,17 +829,20 @@ public:
              if (end==d.end) return (strcmp(gffID, d.gffID)>0);
                         else return (end>d.end);
              } else return (getLevel()>d.getLevel());
-         } else return (start>d.start);
-      }
+	  } else return (start>d.start);
+	  return false;
+   }
+	
    bool operator<(GffObj& d){
      if (gseq_id!=d.gseq_id) return (gseq_id<d.gseq_id);
      if (start==d.start) {
          if (getLevel()==d.getLevel()) {
-            if (end==d.end) return strcmp(gffID, d.gffID)<0;
-                     else return end<d.end;
-            } else return (getLevel()<d.getLevel());
-        } else return (start<d.start);
-     }
+			 if (end==d.end) return strcmp(gffID, d.gffID)<0;
+			 else return end<d.end;
+		 } else return (getLevel()<d.getLevel());
+	 } else return (start<d.start);
+	 return false;
+   }
    char* getID() { return gffID; }
    char* getGeneID() { return geneID; }
    char* getGeneName() { return gene_name; }

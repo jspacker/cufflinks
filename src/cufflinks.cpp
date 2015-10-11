@@ -69,6 +69,7 @@ static struct option long_options[] = {
 {"no-collapse-cond-prob",   no_argument,             0,			 OPT_COLLAPSE_COND_PROB},
 {"compatible-hits-norm",    no_argument,	 		 0,	         OPT_USE_COMPAT_MASS},
 {"total-hits-norm",         no_argument,	 		 0,	         OPT_USE_TOTAL_MASS},
+{"allele-specific-abundance-estimation",  no_argument,     0,    OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION},	
     
 // assembly
 {"pre-mrna-fraction",		required_argument,		 0,			 'j'},
@@ -136,7 +137,8 @@ void print_usage()
     fprintf(stderr, "  --no-length-correction       No length correction                                  [ default:  FALSE ]\n");
     fprintf(stderr, "  -N/--upper-quartile-norm     Deprecated, use --library-norm-method                 [    DEPRECATED   ]\n");
     fprintf(stderr, "  --raw-mapped-norm            Deprecated, use --library-norm-method                 [    DEPRECATED   ]\n");
-    
+    //Nimrod
+	fprintf(stderr, "  --allele-specific-abundance-estimation   Estimation of allele specific isoform aundances [ default:  FALSE ]\n");
     fprintf(stderr, "\nAdvanced Assembly Options:\n");
     fprintf(stderr, "  -L/--label                   assembled transcripts have this ID prefix             [ default:   CUFF ]\n");
     fprintf(stderr, "  -F/--min-isoform-fraction    suppress transcripts below this abundance level       [ default:   0.10 ]\n");
@@ -393,6 +395,11 @@ int parse_options(int argc, char** argv)
             case OPT_USE_TOTAL_MASS:
             {
                 use_total_mass = true;
+                break;
+            }
+		    case OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION:
+            {
+                allele_specific_abundance_estimation = true;
                 break;
             }
             case OPT_MAX_FRAGS_PER_BUNDLE:
@@ -701,17 +708,28 @@ bool scaffolds_for_bundle(const HitBundle& bundle,
 		hits.push_back(Scaffold(hit));
 	}
     
-  vector<float> depth_of_coverage(bundle.length(),0);
+	vector<float> depth_of_coverage(bundle.length(),0);
 	vector<double> scaff_doc;
 	map<pair<int,int>, float> intron_doc;
 	
 	// Make sure the avg only uses stuff we're sure isn't pre-mrna fragments
-	double bundle_avg_doc = compute_doc(bundle.left(), 
-										hits, 
-										depth_of_coverage, 
-										intron_doc,
-										true);
-    
+	double bundle_avg_doc;
+	if(!allele_specific_abundance_estimation)
+	{
+		bundle_avg_doc = compute_doc(bundle.left(), 
+									 hits, 
+									 depth_of_coverage, 
+									 intron_doc,
+									 true);
+	}
+	else{
+		bundle_avg_doc = compute_doc_allele(bundle.left(), 
+											hits, 
+											depth_of_coverage, 
+											intron_doc,
+											true);
+	}
+    	
     if (bundle_avg_doc > 3000)
     {
         filter_introns(bundle.length(), 
@@ -719,7 +737,8 @@ bool scaffolds_for_bundle(const HitBundle& bundle,
                        hits, 
                        min_isoform_fraction, 
                        false,
-                       true);
+                       true,
+					   allele_specific_abundance_estimation);
     }
     
 	if (ref_guided && enable_faux_reads && !hits.empty())
@@ -809,11 +828,12 @@ bool scaffolds_for_bundle(const HitBundle& bundle,
             }
             
             verbose_msg ("%s\tFiltering forward strand\n", bundle_label->c_str());
-            filter_hits(bundle.length(), bundle.left(), fwd_hits);
+            filter_hits(bundle.length(), bundle.left(), fwd_hits, allele_specific_abundance_estimation);
             assembled_successfully |= make_scaffolds(bundle.left(), 
                                                      bundle.length(), 
                                                      fwd_hits, 
-                                                     fwd_scaffolds);
+                                                     fwd_scaffolds,
+													 allele_specific_abundance_estimation);
         }
         
         // Reverse strand hits
@@ -828,11 +848,12 @@ bool scaffolds_for_bundle(const HitBundle& bundle,
             }
             
             verbose_msg ("%s\tFiltering reverse strand\n", bundle_label->c_str());
-            filter_hits(bundle.length(), bundle.left(), rev_hits);
+            filter_hits(bundle.length(), bundle.left(), rev_hits, allele_specific_abundance_estimation);
             assembled_successfully |= make_scaffolds(bundle.left(), 
                                                      bundle.length(), 
                                                      rev_hits, 
-                                                     rev_scaffolds);
+                                                     rev_scaffolds,
+													 allele_specific_abundance_estimation);
         }
 	}
 	else
@@ -851,11 +872,12 @@ bool scaffolds_for_bundle(const HitBundle& bundle,
                 }
                 
                 verbose_msg ("%s\tFiltering forward strand\n", bundle_label->c_str());
-                filter_hits(bundle.length(), bundle.left(), fwd_hits);
+                filter_hits(bundle.length(), bundle.left(), fwd_hits, allele_specific_abundance_estimation);
                 assembled_successfully |= make_scaffolds(bundle.left(), 
                                                          bundle.length(), 
                                                          fwd_hits, 
-                                                         fwd_scaffolds);
+                                                         fwd_scaffolds,
+														 allele_specific_abundance_estimation);
             
             }
 		}
@@ -873,11 +895,12 @@ bool scaffolds_for_bundle(const HitBundle& bundle,
                 }
                 
                 verbose_msg ("%s\tFiltering reverse strand\n", bundle_label->c_str());
-                filter_hits(bundle.length(), bundle.left(), rev_hits);
+                filter_hits(bundle.length(), bundle.left(), rev_hits, allele_specific_abundance_estimation);
                 assembled_successfully |= make_scaffolds(bundle.left(), 
                                                          bundle.length(), 
                                                          rev_hits, 
-                                                         rev_scaffolds);
+                                                         rev_scaffolds,
+														 allele_specific_abundance_estimation);
             }
 		}
 	}
@@ -935,7 +958,6 @@ void quantitate_transcript_cluster(AbundanceGroup& transfrag_cluster,
 {
 	if (transfrag_cluster.abundances().empty())
 		return;
-	
 	vector<double> gammas;
     
 	vector<MateHit> hits_in_cluster;
@@ -955,7 +977,7 @@ void quantitate_transcript_cluster(AbundanceGroup& transfrag_cluster,
 	
     if (hits_in_cluster.size())
         avg_read_length /= hits_in_cluster.size();
-	
+
     if (library_type != "transfrags")
     {
         if (bundle_too_large == false)
@@ -1019,7 +1041,6 @@ void quantitate_transcript_cluster(AbundanceGroup& transfrag_cluster,
 	cluster_transcripts<ConnectByStrand>(transfrag_cluster,
 										 transfrags_by_strand);
 	
-	
 	BOOST_FOREACH (const AbundanceGroup& strand_group, transfrags_by_strand)
 	{	
 		vector<AbundanceGroup> transfrags_by_gene;
@@ -1079,7 +1100,6 @@ void quantitate_transcript_cluster(AbundanceGroup& transfrag_cluster,
 				density_per_bp /= s_len;
 				density_per_bp *= avg_read_length;
 				//double density_per_bp = (FPKM * (map_mass / 1000000.0) * 1000.0);
-				
 				if (!allow_junk_filtering || transfrag->is_ref() || density_score > min_isoform_fraction)
 				{
 					if (gene_id == -1 && (has_novel_isoform || num_ref_gene_ids > 1))
@@ -1107,8 +1127,214 @@ void quantitate_transcript_cluster(AbundanceGroup& transfrag_cluster,
 			}
 		}
 		
-	}
+	}    
+}
+
+//Nimrod
+void quantitate_transcript_cluster(AlleleAbundanceGroup& transfrag_cluster,
+								   //const RefSequenceTable& rt,
+                                   double total_map_mass,
+                                   vector<Gene>& genes,
+                                   bool bundle_too_large)
+{
+	if (transfrag_cluster.abundances().empty())
+		return;
+	
+	vector<double> paternal_gammas,maternal_gammas;
     
+	vector<MateHit> hits_in_cluster;
+
+	get_alignments_from_scaffolds(transfrag_cluster.abundances(),hits_in_cluster);
+
+
+	// need the avg read length for depth of coverage calculation 
+	double avg_read_length = 0; 
+	
+	BOOST_FOREACH (MateHit& hit, hits_in_cluster)
+	{
+		if (hit.left_alignment())
+			avg_read_length += hit.left_alignment()->read_len(); 
+		if (hit.right_alignment())
+			avg_read_length += hit.right_alignment()->read_len(); 
+	}
+	
+	if (hits_in_cluster.size())
+        avg_read_length /= hits_in_cluster.size();
+	
+	if (library_type != "transfrags")
+    {
+        if (bundle_too_large == false)
+        {
+			transfrag_cluster.calculate_abundance(hits_in_cluster);
+		}
+        else
+        {
+			BOOST_FOREACH (boost::shared_ptr<Abundance>  ab, transfrag_cluster.abundances())
+            {
+                ab->paternal_status(NUMERIC_HI_DATA);
+				ab->maternal_status(NUMERIC_HI_DATA);
+            }
+		}
+	}
+    else
+    {
+        vector<boost::shared_ptr<Abundance> >& abundances = transfrag_cluster.abundances();
+        
+        int N = abundances.size();
+        double paternal_total_fpkm = 0.0;
+		double maternal_total_fpkm = 0.0;
+        vector<double> paternal_gammas,maternal_gammas;
+        for (size_t j = 0; j < N; ++j)
+        {
+            double paternal_FPKM = abundances[j]->transfrag()->paternal_fpkm();
+			double maternal_FPKM = abundances[j]->transfrag()->maternal_fpkm();
+            abundances[j]->paternal_FPKM(paternal_FPKM);
+			abundances[j]->maternal_FPKM(maternal_FPKM);
+            paternal_total_fpkm += paternal_FPKM;
+			maternal_total_fpkm += maternal_FPKM;
+            paternal_gammas.push_back(paternal_FPKM);
+			maternal_gammas.push_back(maternal_FPKM);
+        }
+        
+        for (size_t j = 0; j < N; ++j)
+        {
+            if (paternal_total_fpkm)
+                paternal_gammas[j] /= (paternal_total_fpkm+maternal_total_fpkm);
+			if (maternal_total_fpkm)
+                maternal_gammas[j] /= (paternal_total_fpkm+maternal_total_fpkm);
+        }
+        
+        vector<boost::shared_ptr<Abundance> > filtered_transcripts = abundances;
+		
+		filter_junk_isoforms(filtered_transcripts, paternal_gammas, maternal_gammas, abundances, 0);
+		
+        vector<bool> to_keep (abundances.size(), false);
+        for(size_t i = 0; i < N; ++i)
+        {
+            boost::shared_ptr<Abundance> ab_i = abundances[i];
+			bool found = false;
+            BOOST_FOREACH  (boost::shared_ptr<Abundance> ab_j, filtered_transcripts)
+            {
+                if (ab_i == ab_j)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (found)
+				to_keep[i] = true;
+		}
+		AlleleAbundanceGroup kept;
+        transfrag_cluster.filter_group(to_keep, kept);
+        transfrag_cluster = kept;
+    }
+	vector<AlleleAbundanceGroup> transfrags_by_strand;
+	cluster_transcripts<ConnectByStrand>(transfrag_cluster,
+										 transfrags_by_strand);
+	
+	BOOST_FOREACH  (const AlleleAbundanceGroup& strand_group, transfrags_by_strand)
+	{	
+		vector<AlleleAbundanceGroup> transfrags_by_gene;
+		
+		if (bundle_mode == REF_DRIVEN)
+		{
+			cluster_transcripts<ConnectByAnnotatedGeneId>(strand_group, transfrags_by_gene);
+		}
+		else
+		{
+			cluster_transcripts<ConnectByExonOverlap>(strand_group, transfrags_by_gene);
+		}
+		
+		BOOST_FOREACH (const AlleleAbundanceGroup& gene, transfrags_by_gene)
+		{
+			const vector<boost::shared_ptr<Abundance> >& iso_abundances = gene.abundances();
+			vector<Isoform> isoforms;
+			
+			int gene_id = -1;
+			int num_ref_gene_ids = 0;
+            bool has_novel_isoform = false;
+			string ref_gene_id = "";
+			
+			double major_paternal_isoform_FPKM = 0;
+			double major_maternal_isoform_FPKM = 0;
+			for(size_t ab = 0; ab < iso_abundances.size(); ++ab)
+			{
+				if(iso_abundances[ab]->transfrag()->is_ref())
+				{
+					if(iso_abundances[ab]->transfrag()->annotated_gene_id() != ref_gene_id)
+					{	
+						ref_gene_id = iso_abundances[ab]->transfrag()->annotated_gene_id();
+						num_ref_gene_ids++;
+					}
+				}
+				
+				else
+				{
+					has_novel_isoform = true;
+				}
+				major_paternal_isoform_FPKM = max(iso_abundances[ab]->paternal_FPKM(), major_paternal_isoform_FPKM);
+				major_maternal_isoform_FPKM = max(iso_abundances[ab]->maternal_FPKM(), major_maternal_isoform_FPKM);
+			}
+						
+			for(size_t ab = 0; ab < iso_abundances.size(); ++ab)
+			{
+				// Calculate allele-specific transcript depth of coverage and FMI from FPKM
+				double paternal_FPKM = iso_abundances[ab]->paternal_FPKM();
+				double maternal_FPKM = iso_abundances[ab]->maternal_FPKM();
+				double paternal_density_score = major_paternal_isoform_FPKM ? (paternal_FPKM / (major_paternal_isoform_FPKM+major_maternal_isoform_FPKM)) : 0;
+				double maternal_density_score = major_maternal_isoform_FPKM ? (maternal_FPKM / (major_paternal_isoform_FPKM+major_maternal_isoform_FPKM)) : 0;
+				double paternal_density_per_bp = paternal_FPKM;
+				double maternal_density_per_bp = maternal_FPKM;
+				
+				boost::shared_ptr<Scaffold> transfrag = iso_abundances[ab]->transfrag();
+				assert(transfrag);
+				double s_len = transfrag->length();
+				paternal_density_per_bp *= (total_map_mass / 1000000.0); // yields (mass/(length/1000))
+				maternal_density_per_bp *= (total_map_mass / 1000000.0); // yields (mass/(length/1000))
+				paternal_density_per_bp *= (s_len/ 1000.0);
+				maternal_density_per_bp *= (s_len/ 1000.0);
+                double paternal_estimated_count = paternal_density_per_bp;
+				double maternal_estimated_count = maternal_density_per_bp;
+				paternal_density_per_bp /= s_len;
+				maternal_density_per_bp /= s_len;
+				paternal_density_per_bp *= avg_read_length;
+				maternal_density_per_bp *= avg_read_length;
+				//double paternal_density_per_bp = (paternal_FPKM * (map_mass / 1000000.0) * 1000.0);
+				//double maternal_density_per_bp = (maternal_FPKM * (map_mass / 1000000.0) * 1000.0);
+				if (!allow_junk_filtering || transfrag->is_ref() || (paternal_density_score+maternal_density_score) > min_isoform_fraction)
+				{
+					if (gene_id == -1 && (has_novel_isoform || num_ref_gene_ids > 1))
+						gene_id = get_next_gene_id();
+					
+					isoforms.push_back(Isoform(*transfrag,
+											   gene_id,
+											   (int)isoforms.size() + 1,
+											   paternal_FPKM,
+											   maternal_FPKM,
+											   iso_abundances[ab]->paternal_effective_length(),
+											   iso_abundances[ab]->maternal_effective_length(),
+											   iso_abundances[ab]->paternal_gamma(),
+											   iso_abundances[ab]->maternal_gamma(),
+											   iso_abundances[ab]->paternal_FPKM_conf(),
+											   iso_abundances[ab]->maternal_FPKM_conf(),
+											   paternal_density_per_bp, 
+											   maternal_density_per_bp, 
+                                               paternal_estimated_count,
+											   maternal_estimated_count,
+											   paternal_density_score,
+											   maternal_density_score,
+											   iso_abundances[ab]->paternal_status(),
+											   iso_abundances[ab]->maternal_status(),
+											   ref_gene_id));
+				}
+			}
+			if (!isoforms.empty())
+			{
+				Gene g(isoforms, gene.paternal_FPKM(), gene.maternal_FPKM(), gene.paternal_FPKM_conf(), gene.maternal_FPKM_conf(), gene.paternal_status(), gene.maternal_status());
+				genes.push_back(g);	
+			}
+		}
+	}
 }
 
 void quantitate_transcript_clusters(vector<boost::shared_ptr<Scaffold> >& scaffolds,
@@ -1133,35 +1359,58 @@ void quantitate_transcript_clusters(vector<boost::shared_ptr<Scaffold> >& scaffo
             split_partials.push_back(boost::shared_ptr<Scaffold>(new Scaffold(s))); 
         }
     } 
-    
+    	
     scaffolds = split_partials;
-	
+
 	vector<boost::shared_ptr<Abundance> > abundances;
-	BOOST_FOREACH(boost::shared_ptr<Scaffold> s, scaffolds)
+	
+	if(!allele_specific_abundance_estimation)
 	{
-		TranscriptAbundance* pT = new TranscriptAbundance;
-		pT->transfrag(s);
-		boost::shared_ptr<Abundance> ab(pT);
-		abundances.push_back(ab);
+		BOOST_FOREACH (boost::shared_ptr<Scaffold> s, scaffolds)
+		{
+			TranscriptAbundance* pT = new TranscriptAbundance;
+			pT->transfrag(s);
+			boost::shared_ptr<Abundance> ab(pT);
+			abundances.push_back(ab);
+		}
+		
+		AbundanceGroup transfrags = AbundanceGroup(abundances);
+                set<boost::shared_ptr<ReadGroupProperties const> > read_groups;
+                read_groups.insert(rg_props);
+                transfrags.init_rg_props(read_groups);
+
+		vector<AbundanceGroup> transfrags_by_cluster;
+		cluster_transcripts<ConnectByExonOverlap>(transfrags,
+												  transfrags_by_cluster);
+		BOOST_FOREACH (AbundanceGroup& cluster, transfrags_by_cluster)
+		{
+			quantitate_transcript_cluster(cluster, total_map_mass, genes, bundle_too_large);
+		}
 	}
-	
-	AbundanceGroup transfrags = AbundanceGroup(abundances);
-	
-    set<boost::shared_ptr<ReadGroupProperties const> > read_groups;
-    read_groups.insert(rg_props);
-    
-    transfrags.init_rg_props(read_groups);
-    
-	vector<AbundanceGroup> transfrags_by_cluster;
-	
-	cluster_transcripts<ConnectByExonOverlap>(transfrags,
-                                              transfrags_by_cluster);
-	
-	BOOST_FOREACH(AbundanceGroup& cluster, transfrags_by_cluster)
+	else
 	{
-		quantitate_transcript_cluster(cluster, total_map_mass, genes, bundle_too_large);
+		BOOST_FOREACH (boost::shared_ptr<Scaffold> s, scaffolds)
+		{
+			AlleleTranscriptAbundance* pT = new AlleleTranscriptAbundance;
+			pT->transfrag(s);
+			pT->set_allele_informative();
+			boost::shared_ptr<Abundance> ab(pT);
+			abundances.push_back(ab);
+		}
+		AlleleAbundanceGroup transfrags = AlleleAbundanceGroup(abundances);
+                set<boost::shared_ptr<ReadGroupProperties const> > read_groups;
+                read_groups.insert(rg_props);
+                transfrags.init_rg_props(read_groups);
+
+		vector<AlleleAbundanceGroup> transfrags_by_cluster;
+		cluster_transcripts<ConnectByExonOverlap>(transfrags,
+												  transfrags_by_cluster);
+		BOOST_FOREACH (AlleleAbundanceGroup& cluster, transfrags_by_cluster)
+		{
+			quantitate_transcript_cluster(cluster, total_map_mass, genes, bundle_too_large);
+		}
 	}
-    verbose_msg( "%s\tBundle quantitation complete\n", bundle_label->c_str());
+	verbose_msg( "%s\tBundle quantitation complete\n", bundle_label->c_str());
 }
 
 void assemble_bundle(const RefSequenceTable& rt,
@@ -1216,8 +1465,8 @@ void assemble_bundle(const RefSequenceTable& rt,
 		default:
 			assert(false);
 	}
-	
-    if (successfully_assembled == false)
+		
+	if (successfully_assembled == false)
     {
 
 #if ENABLE_THREADS	
@@ -1225,6 +1474,7 @@ void assemble_bundle(const RefSequenceTable& rt,
 #endif
         
         int mask_region_id = get_next_skipped_region_id();
+		
         fprintf(fskipped, 
                 "%s\tCufflinks\texon\t%d\t%d\t%d\t%s\t.\tgene_id \"mask_%d\"; transcript_id \"mask_id%d/+\";\n",
                 rt.get_name(bundle.ref_id()),
@@ -1244,8 +1494,7 @@ void assemble_bundle(const RefSequenceTable& rt,
                 "-",
                 mask_region_id,
                 mask_region_id);
-        
-        
+     
 #if ENABLE_THREADS	
         out_file_lock.unlock();
 #endif
@@ -1258,7 +1507,7 @@ void assemble_bundle(const RefSequenceTable& rt,
 		delete bundle_ptr;
 		return;
 	}
-		
+	
 	vector<Gene> genes;
     
     bool bundle_too_large = bundle_ptr->hits().size() >= max_frags_per_bundle;
@@ -1271,10 +1520,17 @@ void assemble_bundle(const RefSequenceTable& rt,
                                    bundle_too_large);
     
     verbose_msg( "%s\tFiltering bundle assembly\n", bundle_label->c_str());
-    
-    if (allow_junk_filtering)
-        filter_junk_genes(genes);
-
+	
+	if (allow_junk_filtering)
+	{
+		if(!allele_specific_abundance_estimation)
+		{
+			filter_junk_genes(genes);
+		}
+		else{
+			filter_junk_genes_allele(genes);
+		}
+	}
 	
 	if (!final_est_run && bundle_mode==REF_DRIVEN) // Bias needs to be learned
 	{
@@ -1282,7 +1538,7 @@ void assemble_bundle(const RefSequenceTable& rt,
 		{
             for (size_t j = 0; j <genes[i].isoforms().size(); ++j)
             {
-                bl_ptr -> preProcessTranscript(genes[i].isoforms()[j].scaffold()); 
+                bl_ptr -> preProcessTranscript(genes[i].isoforms()[j].scaffold(),allele_specific_abundance_estimation); 
 			}
 		}
 	}
@@ -1308,11 +1564,14 @@ void assemble_bundle(const RefSequenceTable& rt,
             }
         }
     }
-    
-	
+
 	size_t num_scaffs_reported = 0;
 	for (size_t i = 0; i < genes.size(); ++i)
 	{
+		if(allele_specific_abundance_estimation)
+		{
+			genes[i].set_allele_informative_isoforms();
+		}
 		const Gene& gene = genes[i];
 		const vector<Isoform>& isoforms = gene.isoforms();
         set<string> annotated_gene_names;
@@ -1327,14 +1586,19 @@ void assemble_bundle(const RefSequenceTable& rt,
 				 H.begin());
 			
 			vector<string> isoform_exon_recs;
-            
-			iso.get_gtf(isoform_exon_recs, rt, hit_introns);
+            if(allele_specific_abundance_estimation)
+			{
+				iso.get_allele_gtf(isoform_exon_recs, rt, hit_introns);
+			}
+			else
+			{
+				iso.get_gtf(isoform_exon_recs, rt, hit_introns);
+			}
 			
 			for (size_t g = 0; g < isoform_exon_recs.size(); ++g)
 			{
 				fprintf(ftranscripts, "%s", isoform_exon_recs[g].c_str());
 			}
-			
 			fflush(ftranscripts);
 			
 			const char* status;
@@ -1349,22 +1613,73 @@ void assemble_bundle(const RefSequenceTable& rt,
             else
                 assert (false);
 			
-			fprintf(ftrans_abundances,"%s\t%c\t%s\t%s\t%s\t%s\t%s:%d-%d\t%d\t%lg\t%lg\t%lg\t%lg\t%s\n", 
-					iso.trans_id().c_str(),
-                    (iso.scaffold().nearest_ref_classcode() == 0 ? '-' : iso.scaffold().nearest_ref_classcode()),
-                    (iso.scaffold().nearest_ref_id() == "" ? "-" : iso.scaffold().nearest_ref_id().c_str()),
-                    gene.gene_id().c_str(),
-                    (iso.scaffold().annotated_gene_name() == "" ? "-" : iso.scaffold().annotated_gene_name().c_str()), 
-                    (iso.scaffold().annotated_tss_id() == "" ? "-" : iso.scaffold().annotated_tss_id().c_str()),
-					rt.get_name(bundle.ref_id()),
-					iso.scaffold().left(),
-					iso.scaffold().right(),
-                    iso.scaffold().length(),
-                    iso.coverage(),
-                    iso.FPKM(),
-					iso.confidence().low,
-					iso.confidence().high,
-                    status);
+			if(allele_specific_abundance_estimation)
+			{
+				const char* paternal_status;
+				if (iso.paternal_status()==NUMERIC_OK) 
+					paternal_status = "OK";
+				else if (iso.paternal_status() == NUMERIC_LOW_DATA)
+					paternal_status = "LOWDATA";
+				else if (iso.paternal_status() == NUMERIC_HI_DATA)
+					paternal_status = "HIDATA";
+				else if (iso.paternal_status() == NUMERIC_FAIL)
+					paternal_status = "FAIL";
+				else
+					assert (false);
+				const char* maternal_status;
+				if (iso.maternal_status()==NUMERIC_OK) 
+					maternal_status = "OK";
+				else if (iso.maternal_status() == NUMERIC_LOW_DATA)
+					maternal_status = "LOWDATA";
+				else if (iso.maternal_status() == NUMERIC_HI_DATA)
+					maternal_status = "HIDATA";
+				else if (iso.maternal_status() == NUMERIC_FAIL)
+					maternal_status = "FAIL";
+				else
+					assert (false);
+				fprintf(ftrans_abundances,"%s\t%d\t%c\t%s\t%s\t%s\t%s\t%s:%d-%d\t%d\t%lg\t%lg\t%lg\t%lg\t%lg\t%lg\t%lg\t%lg\t%s\t%s\n", 
+						iso.trans_id().c_str(),
+						iso.get_allele_informativeness(),
+						(iso.scaffold().nearest_ref_classcode() == 0 ? '-' : iso.scaffold().nearest_ref_classcode()),
+						(iso.scaffold().nearest_ref_id() == "" ? "-" : iso.scaffold().nearest_ref_id().c_str()),
+						gene.gene_id().c_str(),
+						(iso.scaffold().annotated_gene_name() == "" ? "-" : iso.scaffold().annotated_gene_name().c_str()), 
+						(iso.scaffold().annotated_tss_id() == "" ? "-" : iso.scaffold().annotated_tss_id().c_str()),
+						rt.get_name(bundle.ref_id()),
+						iso.scaffold().left(),
+						iso.scaffold().right(),
+						iso.scaffold().length(),
+						iso.paternal_coverage(),
+						iso.maternal_coverage(),
+						iso.paternal_FPKM(),
+						iso.maternal_FPKM(),
+						iso.paternal_confidence().low,
+						iso.paternal_confidence().high,
+						iso.maternal_confidence().low,
+						iso.maternal_confidence().high,
+						paternal_status,
+						maternal_status);
+			}
+			else
+			{
+				fprintf(ftrans_abundances,"%s\t%c\t%s\t%s\t%s\t%s\t%s:%d-%d\t%d\t%lg\t%lg\t%lg\t%lg\t%s\n", 
+						iso.trans_id().c_str(),
+						(iso.scaffold().nearest_ref_classcode() == 0 ? '-' : iso.scaffold().nearest_ref_classcode()),
+						(iso.scaffold().nearest_ref_id() == "" ? "-" : iso.scaffold().nearest_ref_id().c_str()),
+						gene.gene_id().c_str(),
+						(iso.scaffold().annotated_gene_name() == "" ? "-" : iso.scaffold().annotated_gene_name().c_str()), 
+						(iso.scaffold().annotated_tss_id() == "" ? "-" : iso.scaffold().annotated_tss_id().c_str()),
+						rt.get_name(bundle.ref_id()),
+						iso.scaffold().left(),
+						iso.scaffold().right(),
+						iso.scaffold().length(),
+						iso.coverage(),
+						iso.FPKM(),
+						iso.confidence().low,
+						iso.confidence().high,
+						status);
+			}
+			
 			fflush(ftrans_abundances);
 			
             annotated_gene_names.insert(iso.scaffold().annotated_gene_name());
@@ -1384,31 +1699,80 @@ void assemble_bundle(const RefSequenceTable& rt,
             status = "FAIL";
         else
             assert (false);
-
-        string gene_names = cat_strings(annotated_gene_names);
+		string gene_names = cat_strings(annotated_gene_names);
         if (gene_names == "") gene_names = "-";
         string tss_ids = cat_strings(annotated_tss_ids);
         if (tss_ids == "") tss_ids = "-";
         
-        fprintf(fgene_abundances,"%s\t%c\t%s\t%s\t%s\t%s\t%s:%d-%d\t%s\t%s\t%lg\t%lg\t%lg\t%s\n",
-                gene.gene_id().c_str(),
-                '-',
-                "-",
-                gene.gene_id().c_str(),
-                gene_names.c_str(), 
-                tss_ids.c_str(),
-                rt.get_name(bundle.ref_id()),
-                gene.left(),
-                gene.right(),
-                "-",
-                "-",
-                gene.FPKM(),
-                gene.confidence().low,
-                gene.confidence().high,
-                status);
+		if(allele_specific_abundance_estimation)
+		{
+			const char* paternal_status = "OK";
+			if (gene.paternal_status()==NUMERIC_OK) 
+				paternal_status = "OK";
+			else if (gene.paternal_status() == NUMERIC_LOW_DATA)
+				paternal_status = "LOWDATA";
+			else if (gene.paternal_status() == NUMERIC_HI_DATA)
+				paternal_status = "HIDATA";
+			else if (gene.paternal_status() == NUMERIC_FAIL)
+				paternal_status = "FAIL";
+			else
+				assert (false);
+			const char* maternal_status = "OK";
+			if (gene.maternal_status()==NUMERIC_OK) 
+				maternal_status = "OK";
+			else if (gene.maternal_status() == NUMERIC_LOW_DATA)
+				maternal_status = "LOWDATA";
+			else if (gene.maternal_status() == NUMERIC_HI_DATA)
+				maternal_status = "HIDATA";
+			else if (gene.maternal_status() == NUMERIC_FAIL)
+				maternal_status = "FAIL";
+			else
+				assert (false);
+			fprintf(fgene_abundances,"%s\t%d\t%c\t%s\t%s\t%s\t%s\t%s:%d-%d\t%s\t%s\t%s\t%lg\t%lg\t%lg\t%lg\t%lg\t%lg\t%s\t%s\n",
+					gene.gene_id().c_str(),
+					gene.has_allele_informative_isoforms(),
+					'-',
+					"-",
+					gene.gene_id().c_str(),
+					gene_names.c_str(), 
+					tss_ids.c_str(),
+					rt.get_name(bundle.ref_id()),
+					gene.left(),
+					gene.right(),
+					"-",
+					"-",
+					"-",
+					gene.paternal_FPKM(),
+					gene.maternal_FPKM(),
+					gene.paternal_confidence().low,
+					gene.paternal_confidence().high,
+					gene.maternal_confidence().low,
+					gene.maternal_confidence().high,
+					paternal_status,
+					maternal_status);
+		}
+		else
+		{
+			fprintf(fgene_abundances,"%s\t%c\t%s\t%s\t%s\t%s\t%s:%d-%d\t%s\t%s\t%lg\t%lg\t%lg\t%s\n",
+					gene.gene_id().c_str(),
+					'-',
+					"-",
+					gene.gene_id().c_str(),
+					gene_names.c_str(), 
+					tss_ids.c_str(),
+					rt.get_name(bundle.ref_id()),
+					gene.left(),
+					gene.right(),
+					"-",
+					"-",
+					gene.FPKM(),
+					gene.confidence().low,
+					gene.confidence().high,
+					status);
+		}
 		fflush(fgene_abundances);
 	}
-    delete hit_introns;
+	delete hit_introns;
 	//fprintf(fbundle_tracking, "CLOSE %d\n", bundle.id());
 	
 	if (bundle_mode==REF_DRIVEN && num_scaffs_reported > bundle.ref_scaffolds().size())
@@ -1416,8 +1780,7 @@ void assemble_bundle(const RefSequenceTable& rt,
 		fprintf(stderr, "Error: reported more isoforms than in reference!\n");
 		exit(1);
 	}
-	
-    verbose_msg( "%s\tBundle complete\n", bundle_label->c_str());
+	verbose_msg( "%s\tBundle complete\n", bundle_label->c_str());
     
 #if ENABLE_THREADS
 	out_file_lock.unlock();
@@ -1439,10 +1802,25 @@ bool assemble_hits(BundleFactory& bundle_factory, boost::shared_ptr<BiasLearner>
 	//FILE* fstats = fopen("bundles.stats", "w");
 	FILE* ftrans_abundances = fopen(string(output_dir + "/" + "isoforms.fpkm_tracking").c_str(), "w");
 	//fprintf(ftrans_abundances,"trans_id\tbundle_id\tchr\tleft\tright\tFPKM\tFMI\tfrac\tFPKM_conf_lo\tFPKM_conf_hi\tcoverage\tlength\teffective_length\tstatus\n");
-	fprintf(ftrans_abundances,"tracking_id\tclass_code\tnearest_ref_id\tgene_id\tgene_short_name\ttss_id\tlocus\tlength\tcoverage\tFPKM\tFPKM_conf_lo\tFPKM_conf_hi\tFPKM_status\n");
+	if(!allele_specific_abundance_estimation)
+	{
+		fprintf(ftrans_abundances,"tracking_id\tclass_code\tnearest_ref_id\tgene_id\tgene_short_name\ttss_id\tlocus\tlength\tcoverage\tFPKM\tFPKM_conf_lo\tFPKM_conf_hi\tFPKM_status\n");
+	}
+	else
+	{
+		fprintf(ftrans_abundances,"tracking_id\tallele_informative\tclass_code\tnearest_ref_id\tgene_id\tgene_short_name\ttss_id\tlocus\tlength\tpaternal_coverage\tmaternal_coverage\tpaternal_FPKM\tmaternal_FPKM\tpaternal_FPKM_conf_lo\tpaternal_FPKM_conf_hi\tmaternal_FPKM_conf_lo\tmaternal_FPKM_conf_hi\tpaternal_FPKM_status\tmaternal_FPKM_status\n");
+	}
+	   
 	FILE* fgene_abundances = fopen(string(output_dir + "/" + "genes.fpkm_tracking").c_str(), "w");
 	//fprintf(fgene_abundances,"gene_id\tbundle_id\tchr\tleft\tright\tFPKM\tFPKM_conf_lo\tFPKM_conf_hi\tstatus\n");
-    fprintf(fgene_abundances,"tracking_id\tclass_code\tnearest_ref_id\tgene_id\tgene_short_name\ttss_id\tlocus\tlength\tcoverage\tFPKM\tFPKM_conf_lo\tFPKM_conf_hi\tFPKM_status\n");
+	if(!allele_specific_abundance_estimation)
+	{
+		fprintf(fgene_abundances,"tracking_id\tclass_code\tnearest_ref_id\tgene_id\tgene_short_name\ttss_id\tlocus\tlength\tcoverage\tFPKM\tFPKM_conf_lo\tFPKM_conf_hi\tFPKM_status\n");
+	}
+	else
+	{
+		fprintf(fgene_abundances,"tracking_id\tallele_informative\tclass_code\tnearest_ref_id\tgene_id\tgene_short_name\ttss_id\tlocus\tlength\tpaternal_coverage\tmaternal_coverage\tpaternal_FPKM\tmaternal_FPKM\tpaternal_FPKM_conf_lo\tmaternal_FPKM_conf_lo\tpaternal_FPKM_conf_hi\tmaternal_FPKM_conf_hi\tpaternal_FPKM_status\tmaternal_FPKM_status\n");
+	}
     
 	FILE* ftranscripts = fopen(string(output_dir + "/" + "transcripts.gtf").c_str(), "w");
     FILE* fskipped = 0;
@@ -1468,7 +1846,7 @@ bool assemble_hits(BundleFactory& bundle_factory, boost::shared_ptr<BiasLearner>
 		process = "Assembling transcripts and estimating abundances.";
 		
 	ProgressBar p_bar(process, bundle_factory.read_group_properties()->total_map_mass());
-
+		
 	while(true)
 	{
 		HitBundle* bundle_ptr = new HitBundle();
@@ -1494,8 +1872,8 @@ bool assemble_hits(BundleFactory& bundle_factory, boost::shared_ptr<BiasLearner>
 			delete bundle_ptr;
 			continue;
 		}
-
 		BundleStats stats;
+		
 #if ENABLE_THREADS			
 		while(1)
 		{
@@ -1511,9 +1889,11 @@ bool assemble_hits(BundleFactory& bundle_factory, boost::shared_ptr<BiasLearner>
 			boost::this_thread::sleep(boost::posix_time::milliseconds(5));
 			
 		}
+		
 #endif
+				
 		p_bar.update(bundle_label_buf, bundle.raw_mass());	
-
+		
 #if ENABLE_THREADS			
 		thread_pool_lock.lock();
 		curr_threads++;
@@ -1527,7 +1907,7 @@ bool assemble_hits(BundleFactory& bundle_factory, boost::shared_ptr<BiasLearner>
 					 ftranscripts, 
 					 fgene_abundances,
 					 ftrans_abundances,
-                     fskipped);
+					 fskipped);
 #else
 		assemble_bundle(boost::cref(rt), 
 						bundle_ptr, 
@@ -1536,11 +1916,12 @@ bool assemble_hits(BundleFactory& bundle_factory, boost::shared_ptr<BiasLearner>
 						ftranscripts,
 						fgene_abundances,
 						ftrans_abundances,
-                        fskipped);
+						fskipped);
 #endif			
-		
 	}
 
+	
+	
 #if ENABLE_THREADS	
 	while(1)
 	{

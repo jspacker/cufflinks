@@ -216,7 +216,7 @@ void load_ref_rnas(FILE* ref_mRNA_file,
 						ref_scaff.fpkm(strtod(expr, NULL));
 					}
 				}
-				
+				//nimrod - ignore for now the unused option for loading FPKMs for the parental case
 				if (loadSeqs)
                 {
 					string rs = (rna_seq) ? rna_seq:"";

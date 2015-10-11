@@ -746,6 +746,13 @@ void Scaffold::merge(const Scaffold& lhs,
         double avg_fpkm = lhs.fpkm() + rhs.fpkm();
         avg_fpkm /= 2;
         merged.fpkm(avg_fpkm);
+		//nimrod
+		double avg_paternal_fpkm = lhs.paternal_fpkm() + rhs.paternal_fpkm();
+		double avg_maternal_fpkm = lhs.maternal_fpkm() + rhs.maternal_fpkm();
+        avg_paternal_fpkm /= 2;
+		avg_maternal_fpkm /= 2;
+        merged.paternal_fpkm(avg_paternal_fpkm);
+		merged.maternal_fpkm(avg_maternal_fpkm);
     }
 }
 
@@ -819,13 +826,24 @@ void Scaffold::merge(const vector<Scaffold>& s,
     if (library_type == "transfrags")
     {
         double avg_fpkm = 0.0;
+        //nimrod
+        double avg_paternal_fpkm = 0.0;
+        double avg_maternal_fpkm = 0.0;
         BOOST_FOREACH (const Scaffold& sc, s)
         {
             avg_fpkm += sc.fpkm();
+			//nimrod
+			avg_paternal_fpkm += sc.paternal_fpkm();
+			avg_maternal_fpkm += sc.maternal_fpkm();
         }
         avg_fpkm /= s.size();
         merged.fpkm(avg_fpkm);
-    }
+		//nimrod
+		avg_paternal_fpkm /= s.size();
+		avg_maternal_fpkm /= s.size();
+        merged.paternal_fpkm(avg_paternal_fpkm);
+		merged.maternal_fpkm(avg_maternal_fpkm);
+	}
 }
 
 void Scaffold::fill_gaps(int filled_gap_size)

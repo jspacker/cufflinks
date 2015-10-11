@@ -79,6 +79,8 @@ int num_importance_samples = 10000;
 bool use_compat_mass = false;
 bool use_total_mass = false;
 bool model_mle_error = false;
+bool allele_specific_abundance_estimation = false;
+int min_allele_reads = 10;
 
 // Ref-guided assembly options
 int overhang_3 = 600;
@@ -120,6 +122,8 @@ int min_reps_for_js_test = 3;
 bool no_effective_length_correction = false;
 bool no_length_correction = false;
 bool no_js_tests = false;
+bool allele_specific_differential = false;
+
 
 bool no_scv_correction = false;
 
@@ -303,7 +307,9 @@ void init_library_table()
 	fr_unstranded.mate_strand_mapping(FR);
     fr_unstranded.std_mate_orientation(MATES_POINT_TOWARD);
     fr_unstranded.strandedness(UNSTRANDED_PROTOCOL);
-    
+	//Nimrod
+	fr_unstranded.phase(UNPHASED);
+	    
     library_type_table["fr-unstranded"] = fr_unstranded;
         	
 	ReadGroupProperties fr_firststrand;
@@ -311,6 +317,8 @@ void init_library_table()
 	fr_firststrand.mate_strand_mapping(RF);
     fr_firststrand.std_mate_orientation(MATES_POINT_TOWARD);
     fr_firststrand.strandedness(STRANDED_PROTOCOL);
+	//Nimrod
+	fr_firststrand.phase(UNPHASED);
 	
     library_type_table["fr-firststrand"] = fr_firststrand;
 
@@ -319,6 +327,8 @@ void init_library_table()
 	fr_secondstrand.mate_strand_mapping(FR);
     fr_secondstrand.std_mate_orientation(MATES_POINT_TOWARD);
     fr_secondstrand.strandedness(STRANDED_PROTOCOL);
+	//Nimrod
+	fr_secondstrand.phase(UNPHASED);
 	
     library_type_table["fr-secondstrand"] = fr_secondstrand;
 	
@@ -327,7 +337,9 @@ void init_library_table()
 	ff_unstranded.mate_strand_mapping(FF);
     ff_unstranded.std_mate_orientation(MATES_POINT_TOWARD);
     ff_unstranded.strandedness(UNSTRANDED_PROTOCOL);
-    
+    //Nimrod
+	ff_unstranded.phase(UNPHASED);
+	
     library_type_table["ff-unstranded"] = ff_unstranded;
 	
 	ReadGroupProperties ff_firststrand;
@@ -335,6 +347,8 @@ void init_library_table()
 	ff_firststrand.mate_strand_mapping(FF);
     ff_firststrand.std_mate_orientation(MATES_POINT_TOWARD);
     ff_firststrand.strandedness(STRANDED_PROTOCOL);
+	//Nimrod
+	ff_firststrand.phase(UNPHASED);
 	
     library_type_table["ff-firststrand"] = ff_firststrand;
 	
@@ -343,6 +357,8 @@ void init_library_table()
 	ff_secondstrand.mate_strand_mapping(RR);
     ff_secondstrand.std_mate_orientation(MATES_POINT_TOWARD);
     ff_secondstrand.strandedness(STRANDED_PROTOCOL);
+	//Nimrod
+	ff_secondstrand.phase(UNPHASED);
 	
     library_type_table["ff-secondstrand"] = ff_secondstrand;
     
@@ -352,7 +368,9 @@ void init_library_table()
     transfrags.std_mate_orientation(MATES_POINT_TOWARD);
     transfrags.strandedness(UNSTRANDED_PROTOCOL);
 	transfrags.complete_fragments(true);
-    
+    //Nimrod
+	transfrags.phase(UNPHASED);
+	
     library_type_table["transfrags"] = transfrags;
 	
     //global_read_properties = &(library_type_table.find(default_library_type)->second);
@@ -495,7 +513,8 @@ ReadGroupProperties::ReadGroupProperties() :
     _norm_map_mass(0.0),
     _internal_scale_factor(1.0),
     _external_scale_factor(1.0),
-    _complete_fragments(false)
+    _complete_fragments(false),
+	_phase(UNPHASED)
 {
     _mass_dispersion_model = boost::shared_ptr<MassDispersionModel const>(new PoissonDispersionModel(""));
 } 

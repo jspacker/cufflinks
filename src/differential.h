@@ -36,7 +36,8 @@ enum TestStatus {
     LOWDATA, // unsuccessful calculation due to low data, test not performed
     HIDATA,  // skipped calculation due to too many reads data, test not performed
 	OK,      // successful numerical calc, test performed
-	FAIL     // numerical exception, test not performed
+	FAIL,     // numerical exception, test not performed
+	NOALLELETEST //no ploymorphisms are covered, not worth doing allele test
 }; 
 
 struct SampleDifferenceMetaData
@@ -131,6 +132,97 @@ struct Tests
 	vector<vector<SampleDiffs> > diff_splicing_tests; // to be performed on the isoforms of a single tss group
 	vector<vector<SampleDiffs> > diff_promoter_tests; // to be performed on the tss groups of a single gene
 	vector<vector<SampleDiffs> > diff_cds_tests; // to be performed on the cds groups of a single gene
+};
+
+struct AlleleTests
+{
+	vector<vector<SampleDiffs> > paternal_paternal_isoform_de_tests,paternal_maternal_isoform_de_tests,maternal_paternal_isoform_de_tests,maternal_maternal_isoform_de_tests,parental_isoform_de_tests;
+	vector<vector<SampleDiffs> > paternal_paternal_tss_group_de_tests,paternal_maternal_tss_group_de_tests,maternal_paternal_tss_group_de_tests,maternal_maternal_tss_group_de_tests,parental_tss_group_de_tests;
+	vector<vector<SampleDiffs> > paternal_paternal_gene_de_tests,paternal_maternal_gene_de_tests,maternal_paternal_gene_de_tests,maternal_maternal_gene_de_tests,parental_gene_de_tests;
+	vector<vector<SampleDiffs> > paternal_paternal_cds_de_tests,paternal_maternal_cds_de_tests,maternal_paternal_cds_de_tests,maternal_maternal_cds_de_tests,parental_cds_de_tests;
+	
+	vector<vector<SampleDiffs> > paternal_paternal_diff_splicing_tests,paternal_maternal_diff_splicing_tests,maternal_paternal_diff_splicing_tests,maternal_maternal_diff_splicing_tests,parental_diff_splicing_tests; // to be performed on the isoforms of a single tss group
+	vector<vector<SampleDiffs> > paternal_paternal_diff_promoter_tests,paternal_maternal_diff_promoter_tests,maternal_paternal_diff_promoter_tests,maternal_maternal_diff_promoter_tests,parental_diff_promoter_tests; // to be performed on the tss groups of a single gene
+	vector<vector<SampleDiffs> > paternal_paternal_diff_cds_tests,paternal_maternal_diff_cds_tests,maternal_paternal_diff_cds_tests,maternal_maternal_diff_cds_tests,parental_diff_cds_tests; // to be performed on the cds groups of a single gene
+};
+
+struct FPKMContext
+{
+	FPKMContext(double cm, double cv, double cuv, double cdv, const CountPerReplicateTable& cpr, double r, const FPKMPerReplicateTable& fpr, double v, AbundanceStatus s, const StatusPerReplicateTable& spr)
+		: count_mean(cm), count_var(cv), count_uncertainty_var(cuv), count_dispersion_var(cdv), count_per_rep(cpr), fpkm_per_rep(fpr), FPKM(r), FPKM_variance(v), status(s), status_per_rep(spr) {}
+	double count_mean;
+    double count_var;
+    double count_uncertainty_var;
+    double count_dispersion_var;
+    CountPerReplicateTable count_per_rep;
+    FPKMPerReplicateTable fpkm_per_rep;
+    StatusPerReplicateTable status_per_rep;
+	double FPKM;
+	double FPKM_variance;
+    AbundanceStatus status;
+};
+
+struct FPKMTracking
+{
+	string locus_tag;
+	char classcode;
+	set<string> tss_ids; // for individual isoforms only
+    set<string> gene_ids;
+	set<string> gene_names;
+	set<string> protein_ids;
+	string description; // isoforms or tss groups (e.g.) involved in this test
+	string ref_match;
+    int length;
+	int paternal_length;
+	int maternal_length;
+	TestStatus test_status;
+	
+	vector<FPKMContext> fpkm_series;
+	vector<FPKMContext> paternal_fpkm_series;
+	vector<FPKMContext> maternal_fpkm_series;
+};
+
+typedef map<string,  FPKMTracking> FPKMTrackingTable;
+
+struct Tracking
+{
+	FPKMTrackingTable isoform_fpkm_tracking;
+	FPKMTrackingTable tss_group_fpkm_tracking;
+	FPKMTrackingTable gene_fpkm_tracking;
+	FPKMTrackingTable cds_fpkm_tracking;
+    
+    void clear() 
+    {
+        isoform_fpkm_tracking.clear();
+        tss_group_fpkm_tracking.clear();
+        gene_fpkm_tracking.clear();
+        cds_fpkm_tracking.clear();
+    }
+};
+
+struct SampleAbundances
+{
+    string locus_tag;
+	AbundanceGroup transcripts;
+	vector<AbundanceGroup> primary_transcripts;
+	vector<AbundanceGroup> gene_primary_transcripts;
+	vector<AbundanceGroup> cds;
+	vector<AbundanceGroup> gene_cds;
+	vector<AbundanceGroup> genes;
+	double cluster_mass;
+};
+
+//nimrod
+struct SampleAlleleAbundances
+{
+    string locus_tag;
+	AlleleAbundanceGroup transcripts;
+	vector<AlleleAbundanceGroup> primary_transcripts;
+	vector<AlleleAbundanceGroup> gene_primary_transcripts;
+	vector<AlleleAbundanceGroup> cds;
+	vector<AlleleAbundanceGroup> gene_cds;
+	vector<AlleleAbundanceGroup> genes;
+	double cluster_mass;
 };
 
 #if ENABLE_THREADS
@@ -952,6 +1044,55 @@ private:
     }
 };
 
+//nimrod
+struct AlleleTestLauncher
+{
+private:
+    AlleleTestLauncher(AlleleTestLauncher& rhs) {}
+    
+public:
+    AlleleTestLauncher(int num_samples,
+					   AlleleTests* tests,
+					   Tracking* tracking,
+					   bool ts,
+					   ProgressBar* p_bar) 
+    :
+    _orig_workers(num_samples),
+    _tests(tests),
+    _tracking(tracking),
+	_samples_are_time_series(ts),
+    _p_bar(p_bar)
+    {
+    }
+    
+    void operator()();
+    
+    void register_locus(const string& locus_id);
+    void abundance_avail(const string& locus_id, 
+                         shared_ptr<SampleAlleleAbundances> ab, 
+                         size_t factory_id);
+    void test_finished_loci();
+    void perform_testing(vector<shared_ptr<SampleAlleleAbundances> >& abundances);
+    void record_tracking_data(vector<shared_ptr<SampleAlleleAbundances> >& abundances);
+    bool all_samples_reported_in(vector<shared_ptr<SampleAlleleAbundances> >& abundances);
+    bool all_samples_reported_in(const string& locus_id);
+    
+    void clear_tracking_data() { _tracking->clear(); }
+    
+    typedef list<pair<string, vector<shared_ptr<SampleAlleleAbundances> > > > launcher_sample_table;
+    
+private:
+    
+    launcher_sample_table::iterator find_locus(const string& locus_id);
+    
+    int _orig_workers;
+    launcher_sample_table _samples;
+    AlleleTests* _tests;
+    Tracking* _tracking;
+	bool _samples_are_time_series;
+    ProgressBar* _p_bar;
+
+};
 
 extern double min_read_count;
 
@@ -969,6 +1110,20 @@ void test_differential(const string& locus_tag,
                        const vector<pair<size_t, size_t> >& constrasts,
 					   Tests& tests,
 					   Tracking& tracking);
+
+//nimrod
+void allele_sample_worker(const RefSequenceTable& rt,
+                   ReplicatedBundleFactory& sample_factory,
+                   shared_ptr<SampleAlleleAbundances> abundance,
+                   size_t factory_id,
+                   shared_ptr<AlleleTestLauncher> launcher);
+
+void test_differential(const string& locus_tag,
+					   const vector<shared_ptr<SampleAlleleAbundances> >& samples,
+					   AlleleTests& tests,
+					   Tracking& tracking,
+                       bool samples_are_time_series);
+
 
 void dump_locus_variance_info(const string& filename);
 

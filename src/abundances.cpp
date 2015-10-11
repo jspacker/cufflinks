@@ -423,7 +423,6 @@ void compute_compatibilities(const vector<boost::shared_ptr<Abundance> >& transc
 {
 	int M = alignments.size();
 	int N = transcripts.size();
-	
 	vector<Scaffold> alignment_scaffs;
 	
 	for (size_t i = 0; i < alignments.size(); ++i)
@@ -442,7 +441,7 @@ void compute_compatibilities(const vector<boost::shared_ptr<Abundance> >& transc
             {
 				compatibilities[j][i] = 1;
             }
-        }
+		}
 	}
 }
 
@@ -487,7 +486,7 @@ AbundanceGroup::AbundanceGroup(const vector<boost::shared_ptr<Abundance> >& abun
             for (size_t j = 0; j < _abundances.size(); ++j)
             {
                 _abundances[j]->status(NUMERIC_FAIL);
-            }
+			}
         }
         
        if(!(FPKM() == 0 || fpkm_var > 0 || status() != NUMERIC_OK))
@@ -557,6 +556,20 @@ void TranscriptAbundance::FPKM_variance(double v)
     assert (v >= 0); 
     assert(!isnan(v));
     _FPKM_variance = v; 
+}
+
+void AlleleTranscriptAbundance::paternal_FPKM_variance(double v)
+{ 
+    assert (v >= 0); 
+    assert(!isnan(v));
+    _paternal_FPKM_variance = v; 
+}
+
+void AlleleTranscriptAbundance::maternal_FPKM_variance(double v)
+{ 
+    assert (v >= 0); 
+    assert(!isnan(v));
+    _maternal_FPKM_variance = v; 
 }
 
 bool AbundanceGroup::has_member_with_status(AbundanceStatus member_status) const
@@ -2626,7 +2639,7 @@ void AbundanceGroup::calculate_FPKM_covariance()
             for (size_t j = 0; j < _abundances.size(); ++j)
             {
                 _abundances[j]->status(NUMERIC_FAIL);
-            }
+			}
         }
 
         assert (FPKM() == 0 || _FPKM_variance > 0 || status() != NUMERIC_OK);
@@ -2657,6 +2670,7 @@ void AbundanceGroup::calculate_conf_intervals()
 		// This will compute the transcript level FPKM confidence intervals
 		for (size_t j = 0; j < _abundances.size(); ++j)
 		{
+
             long double fpkm_var = _abundances[j]->FPKM_variance();
             double FPKM_hi = 0.0;
             double FPKM_lo = 0.0;
@@ -2931,7 +2945,6 @@ bool AbundanceGroup::calculate_gammas(const vector<MateHit>& nr_alignments,
         
 		return true;
     }
-	
 	vector<double> gammas;
 	
 	verbose_msg( "Calculating intial MLE\n");
@@ -2940,9 +2953,7 @@ bool AbundanceGroup::calculate_gammas(const vector<MateHit>& nr_alignments,
                                                   nr_alignments,
                                                   log_conv_factors,
                                                   gammas);
-	
 	verbose_msg( "Tossing likely garbage isoforms\n");
-	
 	for (size_t i = 0; i < gammas.size(); ++i)
 	{
 		if (isnan(gammas[i]))
@@ -2962,7 +2973,6 @@ bool AbundanceGroup::calculate_gammas(const vector<MateHit>& nr_alignments,
 	vector<boost::shared_ptr<Abundance> > filtered_transcripts = mapped_transcripts;
 	vector<double> filtered_gammas = gammas;
 	filter_junk_isoforms(filtered_transcripts, filtered_gammas, mapped_transcripts, locus_mass);
-	
 	if (filtered_transcripts.empty())
 	{
 		//gammas = vector<double>(transfrags.size(), 0.0);
@@ -2981,7 +2991,6 @@ bool AbundanceGroup::calculate_gammas(const vector<MateHit>& nr_alignments,
         
 		return true;
 	}
-	
     if (filtered_transcripts.size() != mapped_transcripts.size())
     {    
         filtered_gammas.clear();
@@ -2992,8 +3001,7 @@ bool AbundanceGroup::calculate_gammas(const vector<MateHit>& nr_alignments,
                                         nr_alignments,
                                         log_conv_factors, 
                                         filtered_gammas);
-    }
-
+	}
 	for (size_t i = 0; i < filtered_gammas.size(); ++i)
 	{
 		if (isnan(filtered_gammas[i]))
@@ -3220,7 +3228,83 @@ void calculate_average_assignment_probs(const Eigen::VectorXd& alignment_multipl
     //assignment_probs = marg_cond_prob;
 }
 
-
+//this function is not called and the implementation is not done here
+void calculate_average_assignment_probs_allele(const Eigen::VectorXd& alignment_multiplicities, 
+											   const Eigen::MatrixXd& paternal_transcript_cond_probs,
+											   const Eigen::MatrixXd& maternal_transcript_cond_probs,
+											   const Eigen::VectorXd& proposed_paternal_gammas,
+											   const Eigen::VectorXd& proposed_maternal_gammas,
+											   Eigen::MatrixXd& paternal_assignment_probs,
+											   Eigen::MatrixXd& maternal_assignment_probs)
+{
+    //ublas::vector<double> total_cond_prob = ublas::prod(proposed_gammas,transcript_cond_probs);
+    Eigen::VectorXd total_cond_prob = (proposed_paternal_gammas.transpose() * paternal_transcript_cond_probs) +  (proposed_maternal_gammas.transpose() * maternal_transcript_cond_probs);
+    
+    // Compute the marginal conditional probability for each fragment against each isoform
+    //ublas::matrix<double>  marg_cond_prob = ublas::zero_matrix<double>(transcript_cond_probs.size1(), transcript_cond_probs.size2());
+    Eigen::MatrixXd marg_paternal_cond_prob(paternal_transcript_cond_probs.rows(), paternal_transcript_cond_probs.cols());
+	Eigen::MatrixXd marg_maternal_cond_prob(maternal_transcript_cond_probs.rows(), maternal_transcript_cond_probs.cols());
+    
+    for (size_t i = 0; i < alignment_multiplicities.size(); ++i)
+    {
+        marg_paternal_cond_prob.array().col(i) = proposed_paternal_gammas.array() * paternal_transcript_cond_probs.array().col(i);
+		marg_maternal_cond_prob.array().col(i) = proposed_maternal_gammas.array() * maternal_transcript_cond_probs.array().col(i);
+        
+        if (total_cond_prob(i) > 0)
+        {
+            marg_paternal_cond_prob.array().col(i) /= total_cond_prob(i);
+			marg_maternal_cond_prob.array().col(i) /= total_cond_prob(i);
+            //column(marg_paternal_cond_prob,i) /= total_cond_prob(i);
+			//column(marg_maternal_cond_prob,i) /= total_cond_prob(i);
+        }
+	}
+    
+    paternal_assignment_probs = Eigen::MatrixXd::Zero(proposed_paternal_gammas.size(), proposed_paternal_gammas.size());
+	maternal_assignment_probs = Eigen::MatrixXd::Zero(proposed_maternal_gammas.size(), proposed_maternal_gammas.size());
+    
+    vector<double> num_paternal_compatible(proposed_paternal_gammas.size(), 0);
+	vector<double> num_maternal_compatible(proposed_maternal_gammas.size(), 0);
+    
+    for (size_t i = 0; i < alignment_multiplicities.size(); ++i)
+    {
+        for (size_t j = 0; j < proposed_paternal_gammas.size(); ++j)
+        {
+            if (marg_paternal_cond_prob(j,i) > 0)
+            {
+                paternal_assignment_probs.col(j) += marg_paternal_cond_prob.col(i) * alignment_multiplicities[i];
+                num_paternal_compatible[j] += alignment_multiplicities[i];
+            }
+        }
+		for (size_t j = 0; j < proposed_maternal_gammas.size(); ++j)
+        {
+            if (marg_maternal_cond_prob(j,i) > 0)
+            {
+                maternal_assignment_probs.col(j) += marg_maternal_cond_prob.col(i) * alignment_multiplicities[i];
+                num_maternal_compatible[j] += alignment_multiplicities[i];
+            }
+        }
+    }
+    
+//    cerr << "marg cond prob:" << endl;
+//    cerr << marg_cond_prob << endl;
+    
+    for (size_t j = 0; j < proposed_paternal_gammas.size(); ++j)
+    {
+        if (num_paternal_compatible[j] > 0)
+            paternal_assignment_probs.col(j) /= num_paternal_compatible[j];
+    }
+	for (size_t j = 0; j < proposed_maternal_gammas.size(); ++j)
+    {
+        if (num_maternal_compatible[j] > 0)
+            maternal_assignment_probs.col(j) /= num_maternal_compatible[j];
+    }
+    
+//    cerr << "multiplicities:" << endl;
+//    cerr << alignment_multiplicities << endl;
+//    cerr << "avg matrix:" << endl;
+//    cerr << assignment_probs << endl;
+    //assignment_probs = marg_cond_prob;
+}
 
 void calculate_iterated_exp_count_covariance(const vector<double>& gammas,
                                              const vector<MateHit>& nr_alignments,
@@ -3548,13 +3632,12 @@ void Estep (int N,
 //        }
 //    }
     
-    frag_prob_sums = p.transpose() * cond_probs;
-    
+    frag_prob_sums = p.transpose() * cond_probs;	
     for (i = 0; i < M; ++i) 
     {
-        assert (!isnan(frag_prob_sums(i)) && !isinf(frag_prob_sums(i)));
+		assert (!isnan(frag_prob_sums(i)) && !isinf(frag_prob_sums(i)));
         //double x = frag_prob_sums(i);
-        frag_prob_sums(i) = frag_prob_sums(i) ? (1.0 / frag_prob_sums(i)) : 0.0;
+		frag_prob_sums(i) = frag_prob_sums(i) ? (1.0 / frag_prob_sums(i)) : 0.0;
         if (isnan(frag_prob_sums(i)) || isinf(frag_prob_sums(i)))
         {
             frag_prob_sums(i) = 0; // protect against overflow/underflow
@@ -3562,6 +3645,7 @@ void Estep (int N,
     }
     
     Eigen::VectorXd x = frag_prob_sums.array() * alignment_multiplicities.array();
+	
 //    Eigen::MatrixXd y = p.transpose() * cond_probs;
 //    Eigen::MatrixXd UU = y.array() * x.array();
     
@@ -3589,7 +3673,8 @@ void Estep (int N,
     {
         U.array().row(j) *= x.transpose().array();
     }
-    
+
+   
     //cerr << UU << endl;
     //cerr << "==========" << endl;
     //cerr << U << endl;
@@ -3615,7 +3700,7 @@ void Mstep (int N,
     
 	v = U.rowwise().sum();
     m = v.colwise().sum()(0);
-    
+    	
 	if (m)
 	{
 		p = v / m;
@@ -3674,6 +3759,7 @@ double EM(int N, int M,
 	int iter = 0;
 	int j;
     
+
     if (N == 0 || M == 0)
         return NUMERIC_OK;
     
@@ -3698,7 +3784,7 @@ double EM(int N, int M,
 		Mstep(N, M, newP,U); // fills p
 		
 		newEll = logLike(N, M, newP, cond_prob,alignment_multiplicities, log_conv_factors);
-		
+		//nimrod
 		//fprintf(stderr, "%d\t%lf\n", iter, newEll);
 		
 		//printf("%.3f %.3f %.3f ", newP[0], newP[1], newP[2]);
@@ -3706,12 +3792,13 @@ double EM(int N, int M,
 		//printf("%.3f %.3f %.3f\n", newP[6], newP[7], newP[8]);
 		iter++;
 	}
+	
 	if (iter >= max_mle_iterations)
     {
 		verbose_msg("Warning: ITERMAX reached in abundance estimation, estimation hasn't fully converged\n");
         converged = false;
     }
-    verbose_msg("Convergence reached in %d iterations \n", iter);
+	verbose_msg("Convergence reached in %d iterations \n", iter);
 	return newEll;
 }
 
@@ -4128,7 +4215,6 @@ AbundanceStatus gamma_mle(const vector<boost::shared_ptr<Abundance> >& transcrip
                 cond_probs(j,i) = (*(transcripts[j]->cond_probs()))[i];
             }
         }
-        
         if (check_identifiability)
         {
             ublas::matrix<double> compat = ublas::zero_matrix<double>(M,N);
@@ -4157,9 +4243,9 @@ AbundanceStatus gamma_mle(const vector<boost::shared_ptr<Abundance> >& transcrip
                         break;
                     }
                 }
-                if (has_fragment)
-                    transcripts_with_frags.push_back(j);
-            }
+				if (has_fragment)
+					transcripts_with_frags.push_back(j);
+			}
             ublas::matrix<double> reduced_compat = ublas::zero_matrix<double>(M,transcripts_with_frags.size());
             for (size_t j = 0; j < transcripts_with_frags.size(); ++j)
             {
@@ -4182,9 +4268,9 @@ AbundanceStatus gamma_mle(const vector<boost::shared_ptr<Abundance> >& transcrip
 		{
 			alignment_multiplicities[i] = nr_alignments[i].collapse_mass();
 		}
-        		
-        logL = EM(N, M, prob, cond_probs, alignment_multiplicities, log_conv_factors, converged);
-        
+		
+		logL = EM(N, M, prob, cond_probs, alignment_multiplicities, log_conv_factors, converged);
+		
 		gammas = vector<double>(N, 0.0);
 		
 		for (size_t i = 0; i < gammas.size(); ++i)
@@ -4312,6 +4398,7 @@ double compute_doc(int bundle_origin,
 		}
 	}
 	*/
+	
 	for (size_t i = 0; i < hits.size(); ++i)
 	{
 		const vector<AugmentedCuffOp>& aug_ops = hits[i].augmented_ops();
@@ -4954,11 +5041,3956 @@ void merge_precomputed_expression_worker(const string& locus_tag,
     }
 }
 
-
 //BOOST_CLASS_EXPORT(Abundance)
 BOOST_CLASS_EXPORT(TranscriptAbundance)
 BOOST_SERIALIZATION_SHARED_PTR(TranscriptAbundance);
 BOOST_CLASS_EXPORT(AbundanceGroup);
 BOOST_SERIALIZATION_SHARED_PTR(AbundanceGroup);
 BOOST_SERIALIZATION_ASSUME_ABSTRACT(Abundance);
+
+//Allele-specific implementations
+void compute_compatibilities(const vector<boost::shared_ptr<Abundance> >& transcripts,
+							 const vector<MateHit>& alignments,
+							 vector<vector<char> >& paternalCompatibilities,
+							 vector<vector<char> >& maternalCompatibilities)
+{
+	int M = alignments.size();
+	int N = transcripts.size();
+	
+	vector<Scaffold> alignment_scaffs;
+	for (size_t i = 0; i < alignments.size(); ++i)
+	{
+		const MateHit& hit = alignments[i];
+		alignment_scaffs.push_back(Scaffold(hit));
+	}
+	
+	for (int j = 0; j < N; ++j) 
+    {
+		boost::shared_ptr<Scaffold> transfrag_j = transcripts[j]->transfrag();
+		for (int i = 0; i < M; ++i) 
+        {
+			if (transfrag_j->contains(alignment_scaffs[i])
+				&& Scaffold::compatible(*transfrag_j, alignment_scaffs[i]))
+			{
+				AlleleInfo allele = alignments[i].allele();
+				if(allele == ALLELE_PATERNAL)
+				{
+					paternalCompatibilities[j][i] = 1;
+				}
+				else if(allele == ALLELE_MATERNAL)
+				{
+					maternalCompatibilities[j][i] = 1;
+				}	
+				else
+				{
+					paternalCompatibilities[j][i] = 1;
+					maternalCompatibilities[j][i] = 1;
+				}
+			}
+		}	
+	}
+}
+
+//?max_mass_variance,salient_frags,total_frags
+AlleleAbundanceGroup::AlleleAbundanceGroup(const vector<boost::shared_ptr<Abundance> >& abundances,
+										   const ublas::matrix<double>& parental_gamma_covariance,
+										   const ublas::matrix<double>& iterated_exp_parental_count_covariance,
+										   const ublas::matrix<double>& parental_count_covariance,
+										   const ublas::matrix<double>& parental_fpkm_covariance,
+										   const long double max_mass_variance,
+										   const set<boost::shared_ptr<ReadGroupProperties const> >& rg_props,
+										   const vector<Eigen::VectorXd>& assigned_paternal_count_samples,
+										   const vector<Eigen::VectorXd>& assigned_maternal_count_samples) :
+	_abundances(abundances),
+	_iterated_exp_parental_count_covariance(iterated_exp_parental_count_covariance),
+    _parental_count_covariance(parental_count_covariance),
+	_parental_fpkm_covariance(parental_fpkm_covariance),
+	_parental_gamma_covariance(parental_gamma_covariance),
+	_max_mass_variance(max_mass_variance),
+    _salient_frags(0.0),
+    _total_frags(0.0),
+    _read_group_props(rg_props),
+    _assigned_paternal_count_samples(assigned_paternal_count_samples),
+	_assigned_maternal_count_samples(assigned_maternal_count_samples)
+{
+	// Calling calculate_FPKM_covariance() also estimates cross-replicate
+    // count variances
+    // calculate_FPKM_covariance();
+    double paternal_fpkm_var = 0.0;
+	for (size_t i = 0; i < _parental_fpkm_covariance.size1()/2; ++i)
+    {
+        for (size_t j = 0; j < _parental_fpkm_covariance.size2(); ++j)
+        {
+			assert (!isnan(_parental_fpkm_covariance(i,j)) && !isinf(_parental_fpkm_covariance(i,j)));
+            paternal_fpkm_var += _parental_fpkm_covariance(i,j);
+        }
+    }
+		
+	_paternal_FPKM_variance = paternal_fpkm_var;
+	
+	double maternal_fpkm_var = 0.0;
+	for (size_t i = _parental_fpkm_covariance.size1()/2; i < _parental_fpkm_covariance.size1(); ++i)
+    {
+        for (size_t j = 0; j < _parental_fpkm_covariance.size2(); ++j)
+        {
+			assert (!isnan(_parental_fpkm_covariance(i,j)) && !isinf(_parental_fpkm_covariance(i,j)));
+            maternal_fpkm_var += _parental_fpkm_covariance(i,j);
+        }
+    }
+	_maternal_FPKM_variance = maternal_fpkm_var;
+	if ((paternal_FPKM()+maternal_FPKM()) > 0 && final_est_run && library_type != "transfrags")
+    {
+		
+        ublas::matrix<double> test = _parental_fpkm_covariance;
+		double ret = cholesky_factorize(test);
+		
+		if (ret != 0 || ((_paternal_FPKM_variance < 0 || _maternal_FPKM_variance < 0) && (paternal_status() == NUMERIC_OK && maternal_status() == NUMERIC_OK)))
+        {
+			//fprintf(stderr, "Warning: total FPKM covariance is not positive definite (ret = %lg)!\n", ret);
+            for (size_t j = 0; j < _abundances.size(); ++j)
+            {
+                _abundances[j]->paternal_status(NUMERIC_FAIL);
+				_abundances[j]->maternal_status(NUMERIC_FAIL);
+			}
+        }
+	
+		if(!(paternal_FPKM()+maternal_FPKM() == 0 || (paternal_fpkm_var > 0 || maternal_fpkm_var > 0) || (paternal_status() != NUMERIC_OK || maternal_status() != NUMERIC_OK)))
+		{
+			//cerr << _count_covariance << endl;
+			//cerr << _fpkm_covariance << endl;
+		}
+		assert (paternal_FPKM()+maternal_FPKM() == 0 || (paternal_fpkm_var > 0 || maternal_fpkm_var > 0) || (paternal_status() != NUMERIC_OK || maternal_status() != NUMERIC_OK));
+	}
+	calculate_conf_intervals();
+	if (no_js_tests == false)
+    {
+		calculate_kappas();
+	}
+}
+
+
+AbundanceStatus AlleleAbundanceGroup::paternal_status() const
+{
+	bool has_lowdata_member = false;
+    bool has_ok_member = false;
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		if (ab->paternal_status() == NUMERIC_FAIL)
+		{
+			return NUMERIC_FAIL;
+		}
+        else if (ab->paternal_status() == NUMERIC_LOW_DATA)
+		{
+			has_lowdata_member = true;
+            //return NUMERIC_LOW_DATA;
+		}
+        else if (ab->paternal_status() == NUMERIC_HI_DATA)
+		{
+			return NUMERIC_HI_DATA;
+		}
+        else if (ab->paternal_status() == NUMERIC_OK)
+		{
+			has_ok_member = true;
+		}
+	}
+    
+    if (has_ok_member == false)
+        return NUMERIC_LOW_DATA;
+    
+	return NUMERIC_OK;
+}
+
+AbundanceStatus AlleleAbundanceGroup::maternal_status() const
+{
+	bool has_lowdata_member = false;
+    bool has_ok_member = false;
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		if (ab->maternal_status() == NUMERIC_FAIL)
+		{
+			return NUMERIC_FAIL;
+		}
+        else if (ab->maternal_status() == NUMERIC_LOW_DATA)
+		{
+			has_lowdata_member = true;
+            //return NUMERIC_LOW_DATA;
+		}
+        else if (ab->maternal_status() == NUMERIC_HI_DATA)
+		{
+			return NUMERIC_HI_DATA;
+		}
+        else if (ab->maternal_status() == NUMERIC_OK)
+		{
+			has_ok_member = true;
+		}
+	}
+    
+    if (has_ok_member == false)
+        return NUMERIC_LOW_DATA;
+    
+	return NUMERIC_OK;
+}
+
+//???
+bool AlleleAbundanceGroup::has_paternal_member_with_status(AbundanceStatus member_status) const
+{
+    BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		if (ab->paternal_status() == member_status)
+		{
+			return true;
+		}
+	}
+    return false;
+}
+
+bool AlleleAbundanceGroup::has_maternal_member_with_status(AbundanceStatus member_status) const
+{
+    BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		if (ab->maternal_status() == member_status)
+		{
+			return true;
+		}
+	}
+    return false;
+}
+
+double AlleleAbundanceGroup::num_paternal_fragments() const
+{
+	double paternal = 0;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		paternal += ab->num_paternal_fragments();
+	}
+	assert (!isnan(paternal));
+	return paternal;
+}
+
+double AlleleAbundanceGroup::num_maternal_fragments() const
+{
+	double maternal = 0;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		maternal += ab->num_maternal_fragments();
+	}
+	assert (!isnan(maternal));
+	return maternal;
+}
+
+CountPerReplicateTable AlleleAbundanceGroup::num_paternal_fragments_by_replicate() const
+{
+	CountPerReplicateTable cpr;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		if (cpr.empty())
+        {
+            cpr = ab->num_paternal_fragments_by_replicate();
+        }
+        else
+        {
+            CountPerReplicateTable ab_cpr = ab->num_paternal_fragments_by_replicate();
+            for (CountPerReplicateTable::const_iterator itr = ab_cpr.begin(); 
+                 itr != ab_cpr.end();
+                 ++itr)
+            {
+                CountPerReplicateTable::iterator cpr_itr = cpr.find(itr->first);
+                assert (cpr_itr != cpr.end());
+                cpr_itr->second += itr->second;
+            }
+        }
+	}
+    //assert (cpr.empty() != false);
+	return cpr;
+}
+
+CountPerReplicateTable AlleleAbundanceGroup::num_maternal_fragments_by_replicate() const
+{
+	CountPerReplicateTable cpr;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		if (cpr.empty())
+        {
+            cpr = ab->num_maternal_fragments_by_replicate();
+        }
+        else
+        {
+            CountPerReplicateTable ab_cpr = ab->num_maternal_fragments_by_replicate();
+            for (CountPerReplicateTable::const_iterator itr = ab_cpr.begin(); 
+                 itr != ab_cpr.end();
+                 ++itr)
+            {
+                CountPerReplicateTable::iterator cpr_itr = cpr.find(itr->first);
+                assert (cpr_itr != cpr.end());
+                cpr_itr->second += itr->second;
+            }
+        }
+	}
+    //assert (cpr.empty() != false);
+	return cpr;
+}
+
+FPKMPerReplicateTable AlleleAbundanceGroup::paternal_FPKM_by_replicate() const
+{
+	FPKMPerReplicateTable fpr;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		if (fpr.empty())
+        {
+            fpr = ab->paternal_FPKM_by_replicate();
+        }
+        else
+        {
+            FPKMPerReplicateTable ab_fpr = ab->paternal_FPKM_by_replicate();
+            for (FPKMPerReplicateTable::const_iterator itr = ab_fpr.begin(); 
+                 itr != ab_fpr.end();
+                 ++itr)
+            {
+                FPKMPerReplicateTable::iterator fpr_itr = fpr.find(itr->first);
+                assert (fpr_itr != fpr.end());
+                fpr_itr->second += itr->second;
+            }
+        }
+	}
+	//assert (fpr.empty() != false);
+	return fpr;
+}
+
+FPKMPerReplicateTable AlleleAbundanceGroup::maternal_FPKM_by_replicate() const
+{
+	FPKMPerReplicateTable fpr;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		if (fpr.empty())
+        {
+            fpr = ab->maternal_FPKM_by_replicate();
+        }
+        else
+        {
+            FPKMPerReplicateTable ab_fpr = ab->maternal_FPKM_by_replicate();
+            for (FPKMPerReplicateTable::const_iterator itr = ab_fpr.begin(); 
+                 itr != ab_fpr.end();
+                 ++itr)
+            {
+                FPKMPerReplicateTable::iterator fpr_itr = fpr.find(itr->first);
+                assert (fpr_itr != fpr.end());
+                fpr_itr->second += itr->second;
+            }
+        }
+	}
+	//assert (fpr.empty() != false);
+	return fpr;
+}
+
+StatusPerReplicateTable AlleleAbundanceGroup::paternal_status_by_replicate() const
+{
+	StatusPerReplicateTable fpr;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		if (fpr.empty())
+        {
+            fpr = ab->paternal_status_by_replicate();
+        }
+        else
+        {
+            StatusPerReplicateTable ab_fpr = ab->paternal_status_by_replicate();
+            for (StatusPerReplicateTable::const_iterator itr = ab_fpr.begin(); 
+                 itr != ab_fpr.end();
+                 ++itr)
+            {
+                StatusPerReplicateTable::iterator fpr_itr = fpr.find(itr->first);
+                assert (fpr_itr != fpr.end());
+                
+                AbundanceStatus s = itr->second;
+                
+                if (s == NUMERIC_FAIL)
+                {
+                    fpr_itr->second = NUMERIC_FAIL;
+                }
+                else if (s == NUMERIC_LOW_DATA && (fpr_itr->second != NUMERIC_HI_DATA && fpr_itr->second != NUMERIC_FAIL && fpr_itr->second != NUMERIC_OK))
+                {
+                    fpr_itr->second = NUMERIC_LOW_DATA;
+                }
+                else if (s == NUMERIC_HI_DATA)
+                {
+                    fpr_itr->second = NUMERIC_HI_DATA;
+                }
+                else if (s == NUMERIC_OK && (fpr_itr->second != NUMERIC_HI_DATA && fpr_itr->second != NUMERIC_FAIL))
+                {
+                    fpr_itr->second = NUMERIC_OK;
+                }
+            }
+        }
+	}
+    
+    //assert (fpr.empty() != false);
+	return fpr;
+}
+
+StatusPerReplicateTable AlleleAbundanceGroup::maternal_status_by_replicate() const
+{
+	StatusPerReplicateTable fpr;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		if (fpr.empty())
+        {
+            fpr = ab->maternal_status_by_replicate();
+        }
+        else
+        {
+            StatusPerReplicateTable ab_fpr = ab->maternal_status_by_replicate();
+            for (StatusPerReplicateTable::const_iterator itr = ab_fpr.begin(); 
+                 itr != ab_fpr.end();
+                 ++itr)
+            {
+                StatusPerReplicateTable::iterator fpr_itr = fpr.find(itr->first);
+                assert (fpr_itr != fpr.end());
+                
+                AbundanceStatus s = itr->second;
+                
+                if (s == NUMERIC_FAIL)
+                {
+                    fpr_itr->second = NUMERIC_FAIL;
+                }
+                else if (s == NUMERIC_LOW_DATA && (fpr_itr->second != NUMERIC_HI_DATA && fpr_itr->second != NUMERIC_FAIL && fpr_itr->second != NUMERIC_OK))
+                {
+                    fpr_itr->second = NUMERIC_LOW_DATA;
+                }
+                else if (s == NUMERIC_HI_DATA)
+                {
+                    fpr_itr->second = NUMERIC_HI_DATA;
+                }
+                else if (s == NUMERIC_OK && (fpr_itr->second != NUMERIC_HI_DATA && fpr_itr->second != NUMERIC_FAIL))
+                {
+                    fpr_itr->second = NUMERIC_OK;
+                }
+            }
+        }
+	}
+    
+    //assert (cpr.empty() != false);
+	return fpr;
+}
+
+double AlleleAbundanceGroup::paternal_mass_fraction() const
+{
+	double mass = 0;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		mass += ab->paternal_mass_fraction();
+	}
+	return mass;
+}
+
+double AlleleAbundanceGroup::maternal_mass_fraction() const
+{
+	double mass = 0;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		mass += ab->maternal_mass_fraction();
+	}
+	return mass;
+}
+
+double AlleleAbundanceGroup::paternal_mass_variance() const
+{
+    double mass_var = 0;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		mass_var += ab->paternal_mass_variance();
+	}
+	return mass_var;
+}
+
+double AlleleAbundanceGroup::maternal_mass_variance() const
+{
+    double mass_var = 0;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		mass_var += ab->maternal_mass_variance();
+	}
+	return mass_var;
+}
+
+// This tracks the final modeled variance in the assigned counts.
+double AlleleAbundanceGroup::num_paternal_fragment_var() const			
+{ 
+    double frag_var = 0.0;
+    for (size_t i = 0; i < _parental_count_covariance.size1()/2; ++i)
+    {
+        for (size_t j = 0; j < _parental_count_covariance.size2(); ++j)
+        {
+            frag_var += _parental_count_covariance(i,j);
+        }
+    }
+    return(frag_var);
+}
+
+double AlleleAbundanceGroup::num_maternal_fragment_var() const			
+{ 
+    double frag_var = 0.0;
+    for (size_t i = _parental_count_covariance.size1()/2; i < _parental_count_covariance.size1(); ++i)
+    {
+        for (size_t j = 0; j < _parental_count_covariance.size2(); ++j)
+        {
+            frag_var += _parental_count_covariance(i,j);
+        }
+    }
+    return(frag_var);
+}
+
+// This tracks the final modeled variance in the assigned counts.
+double AlleleAbundanceGroup::num_paternal_fragment_uncertainty_var() const			
+{ 
+    double frag_var = 0.0;
+	for (size_t i = 0; i < _iterated_exp_parental_count_covariance.size1()/2; ++i)
+    {
+        for (size_t j = 0; j < _iterated_exp_parental_count_covariance.size2(); ++j)
+        {
+            frag_var += _iterated_exp_parental_count_covariance(i,j);
+        }
+    }
+    return(frag_var);
+}
+
+double AlleleAbundanceGroup::num_maternal_fragment_uncertainty_var() const			
+{ 
+    double frag_var = 0.0;
+	for (size_t i = _iterated_exp_parental_count_covariance.size1()/2; i < _iterated_exp_parental_count_covariance.size1(); ++i)
+    {
+        for (size_t j = 0; j < _iterated_exp_parental_count_covariance.size2(); ++j)
+        {
+            frag_var += _iterated_exp_parental_count_covariance(i,j);
+        }
+    }
+    return(frag_var);
+}
+
+double AlleleAbundanceGroup::paternal_FPKM() const
+{
+	double fpkm = 0;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		fpkm += ab->paternal_FPKM();
+	}
+	return fpkm;
+}
+
+double AlleleAbundanceGroup::maternal_FPKM() const
+{
+	double fpkm = 0;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		fpkm += ab->maternal_FPKM();
+	}
+	return fpkm;
+}
+
+double AlleleAbundanceGroup::paternal_gamma() const
+{
+	double gamma = 0.0;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		gamma += ab->paternal_gamma();
+	}
+	return gamma;
+}
+
+double AlleleAbundanceGroup::maternal_gamma() const
+{
+	double gamma = 0.0;
+	
+	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		gamma += ab->maternal_gamma();
+	}
+	return gamma;
+}
+
+void AlleleAbundanceGroup::filter_group(const vector<bool>& to_keep, 
+								  AlleleAbundanceGroup& filtered_group) const
+{
+	//filtered_group = AlleleAbundanceGroup();
+	
+	assert (to_keep.size() == _abundances.size());
+	
+	size_t num_kept = 0;
+	BOOST_FOREACH (bool keeper, to_keep)
+	{
+		num_kept += keeper;
+	}
+	
+	ublas::matrix<double> new_parental_cov = ublas::zero_matrix<double>(2*num_kept,2*num_kept);
+    ublas::matrix<double> new_iterated_em_parental_count_cov = ublas::zero_matrix<double>(2*num_kept,2*num_kept);
+    ublas::matrix<double> new_parental_count_cov = ublas::zero_matrix<double>(2*num_kept,2*num_kept);
+    ublas::matrix<double> new_parental_fpkm_cov = ublas::zero_matrix<double>(2*num_kept,2*num_kept);
+	
+	vector<boost::shared_ptr<Abundance> > new_ab;
+    
+	vector<Eigen::VectorXd> new_assigned_paternal_count_samples(_assigned_paternal_count_samples.size(), Eigen::VectorXd::Zero(num_kept));
+	vector<Eigen::VectorXd> new_assigned_maternal_count_samples(_assigned_maternal_count_samples.size(), Eigen::VectorXd::Zero(num_kept));
+	
+		
+			
+    // rebuild covariance matrix and abundance vector after filtration
+	
+	size_t next_cov_row = 0;
+	for (size_t i = 0; i < to_keep.size(); ++i)
+	{
+		if (to_keep[i])
+		{
+			new_ab.push_back(_abundances[i]);
+			size_t next_cov_col = 0;
+			for (size_t j = 0; j < to_keep.size(); ++j)
+			{
+				if (to_keep[j])
+				{
+					new_parental_cov(next_cov_row,next_cov_col) = _parental_gamma_covariance(i, j);
+					new_parental_cov(next_cov_row,next_cov_col+num_kept) = _parental_gamma_covariance(i, j+to_keep.size());
+					new_parental_cov(next_cov_row+num_kept,next_cov_col+num_kept) = _parental_gamma_covariance(i+to_keep.size(), j+to_keep.size());
+					new_parental_cov(next_cov_row+num_kept,next_cov_col) = _parental_gamma_covariance(i+to_keep.size(), j);
+					
+					new_iterated_em_parental_count_cov(next_cov_row,next_cov_col) = _iterated_exp_parental_count_covariance(i, j);
+					new_iterated_em_parental_count_cov(next_cov_row,next_cov_col+num_kept) = _iterated_exp_parental_count_covariance(i, j+to_keep.size());
+					new_iterated_em_parental_count_cov(next_cov_row+num_kept,next_cov_col+num_kept) = _iterated_exp_parental_count_covariance(i+to_keep.size(), j+to_keep.size());
+					new_iterated_em_parental_count_cov(next_cov_row+num_kept,next_cov_col) = _iterated_exp_parental_count_covariance(i+to_keep.size(), j);
+					
+					new_parental_count_cov(next_cov_row,next_cov_col) = _parental_count_covariance(i, j);
+					new_parental_count_cov(next_cov_row,next_cov_col+num_kept) = _parental_count_covariance(i, j+to_keep.size());
+					new_parental_count_cov(next_cov_row+num_kept,next_cov_col+num_kept) = _parental_count_covariance(i+to_keep.size(), j+to_keep.size());
+					new_parental_count_cov(next_cov_row+num_kept,next_cov_col) = _parental_count_covariance(i+to_keep.size(), j);
+					
+					new_parental_fpkm_cov(next_cov_row,next_cov_col) = _parental_fpkm_covariance(i, j);
+					new_parental_fpkm_cov(next_cov_row,next_cov_col+num_kept) = _parental_fpkm_covariance(i, j+to_keep.size());
+					new_parental_fpkm_cov(next_cov_row+num_kept,next_cov_col+num_kept) = _parental_fpkm_covariance(i+to_keep.size(), j+to_keep.size());
+					new_parental_fpkm_cov(next_cov_row+num_kept,next_cov_col) = _parental_fpkm_covariance(i+to_keep.size(), j);
+					
+					next_cov_col++;
+				}
+			}
+			next_cov_row++;
+		}
+	}
+	
+	size_t curr_abundance_idx = 0;
+	for (size_t i = 0; i < _abundances.size(); ++i)
+    {
+        if (to_keep[i])
+		{
+            for (size_t j = 0; j < _assigned_paternal_count_samples.size(); ++j)
+            {
+                new_assigned_paternal_count_samples[j](curr_abundance_idx) = _assigned_paternal_count_samples[j](i);
+            }
+            curr_abundance_idx++;
+		}
+	}
+
+	curr_abundance_idx = 0;
+    for (size_t i = 0; i < _abundances.size(); ++i)
+    {
+        if (to_keep[i])
+		{
+            for (size_t j = 0; j < _assigned_maternal_count_samples.size(); ++j)
+            {
+                new_assigned_maternal_count_samples[j](curr_abundance_idx) = _assigned_maternal_count_samples[j](i);
+            }
+            curr_abundance_idx++;
+		}
+	}
+		
+	filtered_group = AlleleAbundanceGroup(new_ab,
+										  new_parental_cov, 
+										  new_iterated_em_parental_count_cov, 
+										  new_parental_count_cov, 
+										  new_parental_fpkm_cov,
+										  _max_mass_variance,
+										  _read_group_props,
+										  new_assigned_paternal_count_samples,
+										  new_assigned_maternal_count_samples);
+	filtered_group.description(_description);
+}
+
+void AlleleAbundanceGroup::get_transfrags(vector<boost::shared_ptr<Abundance> >& transfrags) const
+{
+	transfrags.clear();
+
+	BOOST_FOREACH (boost::shared_ptr<Abundance> pA, _abundances)
+	{
+		boost::shared_ptr<Scaffold> pS = pA->transfrag();
+		if (pS)
+		{
+			transfrags.push_back(pA);
+		}
+	}
+}
+
+set<string> AlleleAbundanceGroup::gene_id() const
+{
+	set<string> s;
+	
+	BOOST_FOREACH  (boost::shared_ptr<Abundance> pA, _abundances)
+	{
+		set<string> sub = pA->gene_id();
+		s.insert(sub.begin(), sub.end());
+	}
+	return s;
+}
+
+set<string> AlleleAbundanceGroup::gene_name() const	
+{
+	set<string> s;
+	
+	BOOST_FOREACH  (boost::shared_ptr<Abundance> pA, _abundances)
+	{
+		set<string> sub = pA->gene_name();
+	   s.insert(sub.begin(), sub.end());
+	}
+	
+	return s;
+}
+
+set<string> AlleleAbundanceGroup::tss_id() const
+{
+	set<string> s;
+
+	BOOST_FOREACH  (boost::shared_ptr<Abundance> pA, _abundances)
+	{
+		set<string> sub = pA->tss_id();
+		s.insert(sub.begin(), sub.end());
+	}
+	return s;
+}
+
+set<string> AlleleAbundanceGroup::protein_id() const	
+{
+	set<string> s;
+	
+	BOOST_FOREACH  (boost::shared_ptr<Abundance> pA, _abundances)
+	{
+		set<string> sub = pA->protein_id();
+		s.insert(sub.begin(), sub.end());
+	}
+	return s;
+}
+
+const string& AlleleAbundanceGroup::locus_tag() const	
+{
+	static string default_locus_tag = "-";
+	const string* pLast = NULL;
+	static string result;
+	
+	BOOST_FOREACH  (boost::shared_ptr<Abundance> pA, _abundances)
+	{
+		if (pLast)
+		{
+			if (pA->locus_tag() != *pLast)
+			{
+				assert (false);
+				result = default_locus_tag;
+			}
+		}
+		pLast = &(pA->locus_tag());
+	}
+	if (pLast)
+	{
+		result = *pLast;
+	}
+	else
+	{
+		assert (false);
+		result = default_locus_tag;
+	}
+	
+	return(result);
+}
+
+const string& AlleleAbundanceGroup::reference_tag() const	
+{
+	static string default_reference_tag = "-";
+	const string* pLast = NULL;
+	static string result;
+
+	BOOST_FOREACH  (boost::shared_ptr<Abundance> pA, _abundances)
+	{
+		if (pLast)
+		{
+			if (pA->reference_tag() != *pLast)
+			{
+				assert (false);
+				result = default_reference_tag;
+			}
+		}
+		pLast = &(pA->reference_tag());
+	}
+	if (pLast)
+	{
+		result = *pLast;
+	}
+	else
+	{
+		assert (false);
+		result = default_reference_tag;
+	}
+	return(result);
+}
+
+double AlleleAbundanceGroup::paternal_effective_length() const
+{
+	double eff_len = 0.0;
+	if (paternal_FPKM() == 0)
+		eff_len = 0;
+	BOOST_FOREACH  (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		eff_len += (ab->paternal_effective_length() * (ab->paternal_FPKM() / paternal_FPKM()));
+	}
+	return eff_len;
+}
+
+double AlleleAbundanceGroup::maternal_effective_length() const
+{
+	double eff_len = 0.0;
+	if (maternal_FPKM() == 0)
+		eff_len = 0;
+	BOOST_FOREACH  (boost::shared_ptr<Abundance> ab, _abundances)
+	{
+		eff_len += (ab->maternal_effective_length() * (ab->maternal_FPKM() / maternal_FPKM()));
+	}
+	return eff_len;
+}
+
+void AlleleAbundanceGroup::collect_per_replicate_mass(const vector<MateHit>& alignments,
+													   vector<boost::shared_ptr<Abundance> >& transcripts)
+{
+    size_t M = alignments.size();
+	size_t N = transcripts.size();
+	
+    //_count_per_replicate.clear();
+    
+    for (map<boost::shared_ptr<ReadGroupProperties const>, double>::iterator itr = _count_per_replicate.begin(); 
+         itr != _count_per_replicate.end();
+         ++itr)
+    {
+        itr->second = 0.0;
+    }
+    
+	if (transcripts.empty())
+		return;
+    
+    //map<boost::shared_ptr<ReadGroupProperties const>, double> count_per_replicate;
+
+    vector<boost::shared_ptr<Abundance> > mapped_transcripts; // This collects the transcripts that have alignments mapping to them
+	compute_cond_probs_and_effective_lengths_allele(alignments, transcripts, mapped_transcripts);
+    
+	for (size_t i = 0; i < M; ++i)
+	{	
+		if (!alignments[i].left_alignment())
+			continue;
+		
+		bool mapped = false;
+		for (size_t j = 0; j < N; ++j)
+        {
+			if (_abundances[j]->paternal_cond_probs()->at(i) > 0 || _abundances[j]->maternal_cond_probs()->at(i) > 0)
+            {
+				mapped = true;
+				break;
+			}
+		}
+		if (mapped)
+        {
+            boost::shared_ptr<ReadGroupProperties const> rg_props = alignments[i].read_group_props();
+            //assert (parent != NULL);
+            pair<map<boost::shared_ptr<ReadGroupProperties const>, double>::iterator, bool> inserted;
+            inserted = _count_per_replicate.insert(make_pair(rg_props, 0.0));
+            _read_group_props.insert(rg_props);
+            
+            // these are the *internally* scaled masses.
+            double more_mass = alignments[i].collapse_mass();
+            inserted.first->second += more_mass;
+        }
+    }
+}
+
+void AlleleAbundanceGroup::calculate_locus_scaled_mass_and_variance(const vector<MateHit>& alignments,
+																	   const vector<boost::shared_ptr<Abundance> >& transcripts)
+{
+	size_t N = transcripts.size();
+	
+	if (transcripts.empty())
+		return;
+    
+    double avg_X_g = 0.0;
+    double avg_mass_fraction = 0.0;
+    
+    // as long as all the read groups share the same dispersion model (currently true)
+    // then all the variances from each read group will be the same, so this
+    // averaging step isn't strictly necessary.  Computing it this way is simply
+    // convenient.
+    vector<double> avg_mass_paternal_variances(N, 0.0);
+	vector<double> avg_mass_maternal_variances(N, 0.0);
+    
+    double max_mass_var = 0.0;
+    
+    double external_scale_factor = -1.0;
+    for (map<boost::shared_ptr<ReadGroupProperties const>, double>::iterator itr = _count_per_replicate.begin();
+         itr != _count_per_replicate.end();
+         ++itr)
+    {
+        boost::shared_ptr<ReadGroupProperties const> rg_props = itr->first;
+        
+        if (external_scale_factor < 0)
+        {
+            external_scale_factor = rg_props->external_scale_factor();
+        }
+        else
+        {
+            assert (external_scale_factor == rg_props->external_scale_factor());
+        }
+        
+        // Since the _count_per_replicate table stores internally scaled
+        // fragment counts, we need to scale the fragment counts up so we 
+        // can compare between conditions, rather than just between replicates
+        // of this condition.
+        double scaled_mass = itr->second;
+        double scaled_total_mass = rg_props->normalized_map_mass();
+        avg_X_g += scaled_mass;
+        boost::shared_ptr<MassDispersionModel const> disperser = rg_props->mass_dispersion_model();
+        for (size_t j = 0; j < N; ++j)
+        {
+            double scaled_paternal_variance;
+			double scaled_maternal_variance;
+            //scaled_variance = disperser->scale_mass_variance(scaled_mass * _abundances[j]->gamma());
+            scaled_paternal_variance = _abundances[j]->paternal_gamma() * disperser->scale_mass_variance(scaled_mass);
+			scaled_maternal_variance = _abundances[j]->maternal_gamma() * disperser->scale_mass_variance(scaled_mass);
+            avg_mass_paternal_variances[j] += scaled_paternal_variance;
+			avg_mass_maternal_variances[j] += scaled_maternal_variance;
+        }
+        assert (disperser->scale_mass_variance(scaled_mass) != 0 || scaled_mass == 0); 
+        max_mass_var += disperser->scale_mass_variance(scaled_mass);
+        assert (scaled_total_mass != 0.0);
+        avg_mass_fraction += (scaled_mass / scaled_total_mass);
+    }
+    
+    // Set the maximum mass variance in case we get an identifiability failure
+    // and need to bound the group expression.
+    if (!_count_per_replicate.empty())
+        max_mass_var /= _count_per_replicate.size();
+    
+    
+    double num_replicates = _count_per_replicate.size();
+    
+    if (num_replicates)
+    {
+        avg_X_g /= num_replicates;
+        avg_mass_fraction /= num_replicates;
+        for (size_t j = 0; j < N; ++j)
+        {
+            avg_mass_paternal_variances[j] /= num_replicates;
+			avg_mass_maternal_variances[j] /= num_replicates;
+        }
+    }
+	assert (max_mass_var != 0 || avg_X_g == 0);
+    max_mass_variance(max_mass_var);
+    
+	for (size_t j = 0; j < _abundances.size(); ++j)
+	{
+		_abundances[j]->num_paternal_fragments(_abundances[j]->paternal_gamma() * avg_X_g);
+		_abundances[j]->num_maternal_fragments(_abundances[j]->maternal_gamma() * avg_X_g);
+
+        double j_avg_mass_paternal_fraction = _abundances[j]->paternal_gamma() * avg_mass_fraction;
+		double j_avg_mass_maternal_fraction = _abundances[j]->maternal_gamma() * avg_mass_fraction;
+		_abundances[j]->paternal_mass_fraction(j_avg_mass_paternal_fraction);
+		_abundances[j]->maternal_mass_fraction(j_avg_mass_maternal_fraction);
+        _abundances[j]->paternal_mass_variance(avg_mass_paternal_variances[j]);
+		_abundances[j]->maternal_mass_variance(avg_mass_maternal_variances[j]);
+		
+        if (j_avg_mass_paternal_fraction > 0)
+        {
+            double paternal_FPKM = j_avg_mass_paternal_fraction * 1000000000/ _abundances[j]->paternal_effective_length();
+            paternal_FPKM *= 1.0 / external_scale_factor;
+			_abundances[j]->paternal_FPKM(paternal_FPKM);
+        }
+        else 
+        {
+			_abundances[j]->paternal_FPKM(0);
+            _abundances[j]->paternal_mass_variance(0);
+            _abundances[j]->paternal_mass_fraction(0);
+        }
+		if (j_avg_mass_maternal_fraction > 0)
+        {
+            double maternal_FPKM = j_avg_mass_maternal_fraction * 1000000000/ _abundances[j]->maternal_effective_length();
+			maternal_FPKM *= 1.0 / external_scale_factor;
+			_abundances[j]->maternal_FPKM(maternal_FPKM);
+        }
+        else 
+        {
+            _abundances[j]->maternal_FPKM(0);
+            _abundances[j]->maternal_mass_variance(0);
+            _abundances[j]->maternal_mass_fraction(0);
+        }		
+	}
+}
+
+int total_paternal_cond_prob_calls = 0;
+int total_maternal_cond_prob_calls = 0;
+void collapse_equivalent_hits_allele(const vector<MateHit>& alignments,
+                              vector<boost::shared_ptr<Abundance> >& transcripts,
+                              vector<boost::shared_ptr<Abundance> >& mapped_transcripts,
+                              vector<MateHit>& nr_alignments,
+                              vector<double>& log_conv_factors, 
+                              bool require_overlap = true)
+{
+    int N = transcripts.size();
+	int M = alignments.size();
+    
+    nr_alignments.clear();
+    
+	vector<vector<char> > paternal_compatibilities(N, vector<char>(M,0));
+	vector<vector<char> > maternal_compatibilities(N, vector<char>(M,0));
+	compute_compatibilities(transcripts, alignments, paternal_compatibilities, maternal_compatibilities);
+    
+    vector<vector<double> > paternal_cached_cond_probs (M, vector<double>());
+	vector<vector<double> > maternal_cached_cond_probs (M, vector<double>());
+    
+    vector<bool> replaced(M, false);
+    int num_replaced = 0;
+    
+    vector<BiasCorrectionHelper> bchs;
+    for (size_t j = 0; j < N; ++j)
+    {
+        bchs.push_back(BiasCorrectionHelper(transcripts[j]->transfrag()));   
+    }
+    
+    for(int i = 0 ; i < M; ++i)
+    {
+        vector<double> paternal_cond_probs_i(N,0);
+		vector<double> maternal_cond_probs_i(N,0);
+        if (replaced[i] == true)
+            continue;
+        
+        if (paternal_cached_cond_probs[i].empty())
+        {
+            for (int j = 0; j < N; ++j)
+            {
+                boost::shared_ptr<Scaffold> transfrag = transcripts[j]->transfrag();
+                
+                if (paternal_compatibilities[j][i]==1)
+                {
+                    total_paternal_cond_prob_calls++;
+                    paternal_cond_probs_i[j] = bchs[j].get_cond_prob(alignments[i]);
+                }
+                
+            }
+            paternal_cached_cond_probs[i] = paternal_cond_probs_i;
+        }
+        else
+        {
+            paternal_cond_probs_i = paternal_cached_cond_probs[i];
+        }
+		if (maternal_cached_cond_probs[i].empty())
+        {
+            for (int j = 0; j < N; ++j)
+            {
+                boost::shared_ptr<Scaffold> transfrag = transcripts[j]->transfrag();
+                
+                if (maternal_compatibilities[j][i]==1)
+                {
+                    total_maternal_cond_prob_calls++;
+                    maternal_cond_probs_i[j] = bchs[j].get_cond_prob(alignments[i]);
+                }
+                
+            }
+            maternal_cached_cond_probs[i] = maternal_cond_probs_i;
+        }
+        else
+        {
+            maternal_cond_probs_i = maternal_cached_cond_probs[i];
+        }
+        
+        MateHit* curr_align = NULL;
+        
+        nr_alignments.push_back(alignments[i]);
+        curr_align = &nr_alignments.back();
+        log_conv_factors.push_back(0);
+        
+        if (corr_multi && alignments[i].is_multi()) // don't reduce other hits into multihits
+            continue;
+        
+        bool seen_olap = false;
+        
+        for(int k = i + 1 ; k < M; ++k)
+        {
+            if (replaced[k] || (corr_multi && alignments[k].is_multi()) || alignments[i].read_group_props() != alignments[k].read_group_props())
+                continue;
+            if (require_overlap && !::overlap_in_genome(curr_align->left(), curr_align->right(),
+                                     alignments[k].left(), alignments[k].right()))
+            {
+                if (seen_olap) 
+                    break;
+                else
+                    continue;
+            }
+            else
+            {
+                seen_olap = true;   
+            }
+            
+            vector<double>* paternal_cond_probs_k;
+            double last_paternal_cond_prob = -1;
+			vector<double>* maternal_cond_probs_k;
+            double last_maternal_cond_prob = -1;
+            
+            bool equiv = true;
+            
+            if (paternal_cached_cond_probs[k].empty())
+            {
+                paternal_cached_cond_probs[k] = vector<double>(N, 0.0);
+                paternal_cond_probs_k = &paternal_cached_cond_probs[k];
+                for (int j = 0; j < N; ++j)
+                {
+                    boost::shared_ptr<Scaffold> transfrag = transcripts[j]->transfrag();
+                    
+                    if (paternal_compatibilities[j][k]==1)
+                    {
+                        total_paternal_cond_prob_calls++;
+                        (*paternal_cond_probs_k)[j] = bchs[j].get_cond_prob(alignments[k]);
+                    }
+                }
+                //paternal_cached_cond_probs[k] = paternal_cond_probs_k;
+            }
+            else
+            {
+                paternal_cond_probs_k = &paternal_cached_cond_probs[k];
+            }
+			if (maternal_cached_cond_probs[k].empty())
+            {
+                maternal_cached_cond_probs[k] = vector<double>(N, 0.0);
+                maternal_cond_probs_k = &maternal_cached_cond_probs[k];
+                for (int j = 0; j < N; ++j)
+                {
+                    boost::shared_ptr<Scaffold> transfrag = transcripts[j]->transfrag();
+                    
+                    if (maternal_compatibilities[j][k]==1)
+                    {
+                        total_maternal_cond_prob_calls++;
+                        (*maternal_cond_probs_k)[j] = bchs[j].get_cond_prob(alignments[k]);
+                    }
+                }
+                //maternal_cached_cond_probs[k] = maternal_cond_probs_k;
+            }
+            else
+            {
+                maternal_cond_probs_k = &maternal_cached_cond_probs[k];
+            }
+               
+            
+            for (int j = 0; j < N; ++j)
+            {
+                if (((*paternal_cond_probs_k)[j] != 0 && paternal_cond_probs_i[j] != 0) || ((*maternal_cond_probs_k)[j] != 0 && maternal_cond_probs_i[j] != 0))
+                {
+                    double paternal_cp_j = (*paternal_cond_probs_k)[j];
+                    double paternal_cp_i = paternal_cond_probs_i[j];
+                    double paternal_ratio =  paternal_cp_j / paternal_cp_i;
+					double maternal_cp_j = (*maternal_cond_probs_k)[j];
+                    double maternal_cp_i = maternal_cond_probs_i[j];
+                    double maternal_ratio =  maternal_cp_j / maternal_cp_i;
+                    if (last_paternal_cond_prob == -1)
+                    {
+                        //assert(paternal_ratio < 5);
+                        last_paternal_cond_prob = paternal_ratio;
+                    }
+                    else
+                    {
+                        if (last_paternal_cond_prob != paternal_ratio)
+                        //if (abs(last_paternal_cond_prob - paternal_ratio) > 0.001)
+                        {
+                            equiv = false;
+                            break;
+                        }
+                    }
+					if (last_maternal_cond_prob == -1)
+                    {
+                        //assert(paternal_ratio < 5);
+                        last_maternal_cond_prob = maternal_ratio;
+                    }
+                    else
+                    {
+                        if (last_maternal_cond_prob != maternal_ratio)
+                        //if (abs(last_maternal_cond_prob - maternal_ratio) > 0.001)
+                        {
+                            equiv = false;
+                            break;
+                        }
+                    }
+                }
+                else if (((*paternal_cond_probs_k)[j] == 0 && paternal_cond_probs_i[j] == 0) || ((*maternal_cond_probs_k)[j] == 0 && maternal_cond_probs_i[j] == 0))
+                {
+                    // just do nothing in this iter.
+                    // last_cond_prob = 0.0;
+                }
+                else
+                {
+                    equiv = false;
+                    break;
+                }
+            }
+            
+            // cond_prob_i vector is a scalar multiple of cond_prob_k, so we
+            // can collapse k into i via the mass.
+            if (equiv)
+            {
+                if (last_paternal_cond_prob > 0.0 || last_maternal_cond_prob > 0.0)
+                {
+                    //assert(curr_align->read_group_props() == alignments[k].read_group_props());
+                    assert (last_paternal_cond_prob > 0 || last_maternal_cond_prob > 0);
+                    //double paternal_mass_muliplier = sqrt(last_paternal_cond_prob);
+                    double paternal_mass_multiplier = log(last_paternal_cond_prob);
+                    //assert(last_paternal_cond_prob < 5);
+					//double maternal_mass_muliplier = sqrt(last_maternal_cond_prob);
+                    double maternal_mass_multiplier = log(last_maternal_cond_prob);
+                    //assert(last_maternal_cond_prob < 5);
+                    assert (!isinf(paternal_mass_multiplier) && !isnan(paternal_mass_multiplier));
+					assert (!isinf(maternal_mass_multiplier) && !isnan(maternal_mass_multiplier));
+                    log_conv_factors[log_conv_factors.size() - 1] += (paternal_mass_multiplier+maternal_mass_multiplier);//???
+					replaced[k] = true;
+                    paternal_cached_cond_probs[k].clear();
+					maternal_cached_cond_probs[k].clear();
+                    vector<double>(paternal_cached_cond_probs[k]).swap(paternal_cached_cond_probs[k]);
+					vector<double>(maternal_cached_cond_probs[k]).swap(maternal_cached_cond_probs[k]);
+                    num_replaced++;
+                    double more_mass = alignments[k].collapse_mass();
+                    curr_align->incr_collapse_mass(more_mass);
+                }
+                else
+                {
+                    replaced[k] = true;
+                    num_replaced++;
+                    paternal_cached_cond_probs[k].clear();
+					maternal_cached_cond_probs[k].clear();
+                    vector<double>(paternal_cached_cond_probs[k]).swap(paternal_cached_cond_probs[k]);
+					vector<double>(maternal_cached_cond_probs[k]).swap(maternal_cached_cond_probs[k]);
+                }
+            }
+            
+        }
+    }
+    
+    N = transcripts.size();
+	//M = nr_alignments.size();
+        
+	for (int j = 0; j < N; ++j) 
+    {
+		boost::shared_ptr<Scaffold> transfrag = transcripts[j]->transfrag();
+		vector<double>& paternal_cond_probs = *(new vector<double>(nr_alignments.size(),0));
+		vector<double>& maternal_cond_probs = *(new vector<double>(nr_alignments.size(),0));
+		
+		BiasCorrectionHelper& bch = bchs[j];
+		
+        size_t last_cond_prob_idx = 0;
+		for(int i = 0 ; i < M; ++i)
+		{
+            if (!paternal_cached_cond_probs[i].empty() || !maternal_cached_cond_probs[i].empty())
+            {
+                if (paternal_compatibilities[j][i]==1 || maternal_compatibilities[j][i]==1)
+                {
+                    assert (paternal_cached_cond_probs[i].size() > j || maternal_cached_cond_probs[i].size() > j);
+					paternal_cond_probs[last_cond_prob_idx] = paternal_cached_cond_probs[i][j];
+					maternal_cond_probs[last_cond_prob_idx] = maternal_cached_cond_probs[i][j];
+                }
+                last_cond_prob_idx++;
+            }
+        }
+		
+        assert (last_cond_prob_idx == nr_alignments.size());
+		double bch_eff_len = bch.get_effective_length();
+		if(transcripts[j]->paternal_effective_length() == transcripts[j]->maternal_effective_length()){
+			transcripts[j]->paternal_effective_length(bch_eff_len);
+			transcripts[j]->maternal_effective_length(bch_eff_len);
+		}
+		else{//update according to their proportions
+			if(transcripts[j]->paternal_effective_length() > transcripts[j]->maternal_effective_length()){
+				transcripts[j]->paternal_effective_length(bch_eff_len);
+				transcripts[j]->maternal_effective_length((transcripts[j]->maternal_effective_length()/transcripts[j]->paternal_effective_length())*bch_eff_len);
+			}
+			else{
+				transcripts[j]->paternal_effective_length((transcripts[j]->paternal_effective_length()/transcripts[j]->maternal_effective_length())*bch_eff_len);
+				transcripts[j]->maternal_effective_length(bch_eff_len);
+			}
+		}
+		transcripts[j]->paternal_cond_probs(&paternal_cond_probs);
+		transcripts[j]->maternal_cond_probs(&maternal_cond_probs);
+		
+		if (bch.is_mapped()) 
+			mapped_transcripts.push_back(transcripts[j]);
+	}
+    if (nr_alignments.size())
+    {
+        verbose_msg("\nReduced %lu frags to %lu (%lf percent)\n", alignments.size(), nr_alignments.size(), 100.0 * (1 - nr_alignments.size()/(double)alignments.size()));
+    }
+}
+
+void collapse_equivalent_hits_helper_allele(const vector<MateHit>& alignments,
+                                     vector<boost::shared_ptr<Abundance> >& transcripts,
+                                     vector<boost::shared_ptr<Abundance> >& mapped_transcripts,
+                                     vector<MateHit>& nr_alignments,
+                                     vector<double>& log_conv_factors)
+{
+    int N = transcripts.size();
+	int M = alignments.size();
+    
+    if (N == 1)
+    {
+        nr_alignments = alignments;
+        log_conv_factors = vector<double>(M, 0.0);
+        return;
+    }
+    // TODO: Remove this short cut after verifying that it doesn't really make sense
+    // for large bundles.  The collapse is almost certainly more efficient.
+    // If there's a lot of transcripts, just use the old, overlap constrained 
+    // version of the equivalence collapse.
+    if (N > 24)
+    {
+        collapse_equivalent_hits_allele(alignments,
+                                 transcripts,
+                                 mapped_transcripts,
+                                 nr_alignments,
+                                 log_conv_factors, 
+                                 true);
+        return;
+    }
+    
+    vector<vector<const MateHit*> > compat_table(1 << N);
+    vector<vector<char> > paternal_compatibilities(N, vector<char>(M,0));
+	vector<vector<char> > maternal_compatibilities(N, vector<char>(M,0));
+    compute_compatibilities(transcripts, alignments, paternal_compatibilities, maternal_compatibilities);
+    
+    for(int i = 0; i < M; ++i)
+    {
+        size_t compat_mask = 0;
+        for (int j = 0; j < N; ++j)
+        {
+            compat_mask |= ((paternal_compatibilities[j][i] !=0 || maternal_compatibilities[j][i] !=0) << j);
+        }
+        assert (compat_mask < compat_table.size());
+        compat_table[compat_mask].push_back(&(alignments[i]));
+    }
+    
+    for (size_t i = 0; i < compat_table.size(); ++i)
+    {
+        vector<MateHit> tmp_hits;
+        vector<MateHit> tmp_nr_hits;
+        vector<double> tmp_log_conv_factors;
+        vector<boost::shared_ptr<Abundance> > tmp_mapped_transcripts;
+        for (size_t j = 0; j < compat_table[i].size(); ++j)
+        {
+            tmp_hits.push_back(*(compat_table[i][j]));
+        }
+        if (tmp_hits.empty())
+            continue;
+        collapse_equivalent_hits_allele(tmp_hits,
+                                 transcripts,
+                                 tmp_mapped_transcripts,
+                                 tmp_nr_hits,
+                                 tmp_log_conv_factors, 
+                                 false);
+        copy(tmp_nr_hits.begin(), tmp_nr_hits.end(), back_inserter(nr_alignments));
+        copy(tmp_log_conv_factors.begin(), tmp_log_conv_factors.end(), back_inserter(log_conv_factors));
+    }
+}
+
+#define PERFORM_EQUIV_COLLAPSE 1
+
+
+void AlleleAbundanceGroup::calculate_abundance(const vector<MateHit>& alignments)
+{
+	//These vectors will esentially be different wrt their gammas, kappas, etc
+	vector<boost::shared_ptr<Abundance> > transcripts;
+	get_transfrags(transcripts);
+	vector<boost::shared_ptr<Abundance> > mapped_transcripts; // This collects the transcripts that have alignments mapping to them
+    
+	vector<MateHit> nr_alignments;
+    
+    if (cond_prob_collapse)
+    {
+		collapse_hits(alignments, nr_alignments);
+    }
+    else
+    {
+        nr_alignments = alignments;
+    }
+    
+    collect_per_replicate_mass(nr_alignments, transcripts);
+    
+    vector<MateHit> non_equiv_alignments;
+    vector<double> log_conv_factors;
+	
+    if (cond_prob_collapse)
+    {
+        collapse_equivalent_hits_helper_allele(nr_alignments, transcripts, mapped_transcripts, non_equiv_alignments, log_conv_factors);
+        assert (non_equiv_alignments.size() == log_conv_factors.size());
+        log_conv_factors = vector<double>(nr_alignments.size(), 0);
+        nr_alignments.clear();
+        mapped_transcripts.clear();
+        compute_cond_probs_and_effective_lengths(non_equiv_alignments, transcripts, mapped_transcripts);
+    }
+    else
+    {
+		non_equiv_alignments = nr_alignments;
+		log_conv_factors = vector<double>(nr_alignments.size(), 0);
+		compute_cond_probs_and_effective_lengths_allele(non_equiv_alignments, transcripts, mapped_transcripts);
+	}
+	
+    if (final_est_run || corr_multi || corr_bias) // don't do the pooled estimation run if we're just getting the replicate mles for dispersion modeling
+    {
+		calculate_gammas(non_equiv_alignments, log_conv_factors, transcripts, mapped_transcripts);
+	}
+
+    ublas::vector<double> mean_per_rep_paternal_gammas;
+	ublas::vector<double> mean_per_rep_maternal_gammas;
+    ublas::matrix<double> parental_gamma_covariance;
+    std::map<boost::shared_ptr<ReadGroupProperties const >, vector<ublas::vector<double> > > parental_mles_for_read_groups;
+    std::map<boost::shared_ptr<ReadGroupProperties const >, AbundanceStatus > status_per_replicate;
+	for (std::map<boost::shared_ptr<ReadGroupProperties const >, double >::const_iterator itr =_count_per_replicate.begin(); itr != _count_per_replicate.end(); ++itr)
+	{
+		parental_mles_for_read_groups.insert(make_pair(itr->first, vector<ublas::vector<double> >(2,ublas::vector<double>(_abundances.size(), 0))));
+	}
+	if (final_est_run || (!corr_multi && !corr_bias))
+    {
+        empirical_mean_replicate_gamma_mle(transcripts,
+										   non_equiv_alignments,
+										   log_conv_factors,
+										   mean_per_rep_paternal_gammas,
+										   mean_per_rep_maternal_gammas,
+										   parental_gamma_covariance,
+										   parental_mles_for_read_groups,
+										   _count_per_replicate,
+										   status_per_replicate);
+
+		for (size_t i = 0; i < _abundances.size(); ++i)
+        {
+            CountPerReplicateTable paternal_cpr,maternal_cpr;
+            FPKMPerReplicateTable paternal_fpr,maternal_fpr;
+            StatusPerReplicateTable paternal_spr,maternal_spr;
+            for (std::map<boost::shared_ptr<ReadGroupProperties const >, vector<ublas::vector<double> > >::const_iterator itr = parental_mles_for_read_groups.begin();
+                 itr != parental_mles_for_read_groups.end();
+                 ++itr)
+            {
+				vector<ublas::vector<double> > parental_mles_for_rep = itr->second;
+				ublas::vector<double> paternal_mles_for_rep = parental_mles_for_rep[0];
+				ublas::vector<double> maternal_mles_for_rep = parental_mles_for_rep[1];
+                std::map<boost::shared_ptr<ReadGroupProperties const >, double>::const_iterator rep_itr = _count_per_replicate.find(itr->first);
+                assert (rep_itr != _count_per_replicate.end());
+                double count_for_rep = rep_itr->second;
+                ublas::vector<double> paternal_trans_counts = paternal_mles_for_rep * count_for_rep;
+				ublas::vector<double> maternal_trans_counts = maternal_mles_for_rep * count_for_rep;
+                ublas::vector<double> paternal_trans_fpkms = paternal_trans_counts;
+				ublas::vector<double> maternal_trans_fpkms = maternal_trans_counts;
+                std::vector<AbundanceStatus> paternal_trans_status(paternal_trans_fpkms.size(), NUMERIC_OK);//???
+				std::vector<AbundanceStatus> maternal_trans_status(maternal_trans_fpkms.size(), NUMERIC_OK);//???
+                for (size_t j = 0; j < paternal_trans_fpkms.size(); ++j)
+                {
+                    if (_abundances[i]->paternal_effective_length() && (itr->first)->normalized_map_mass())
+                    {
+                        paternal_trans_fpkms(j) /= (itr->first)->normalized_map_mass();
+                        paternal_trans_fpkms(j) *= 1000000000;
+                        paternal_trans_fpkms(j) /= _abundances[i]->paternal_effective_length();
+                        paternal_trans_fpkms(j) /= (itr->first)->external_scale_factor();
+                    }
+                    else
+                    {
+                        paternal_trans_fpkms(j) = 0;
+                    }                    
+                }
+                for (size_t j = 0; j < maternal_trans_fpkms.size(); ++j)
+                {
+                    if (_abundances[i]->maternal_effective_length() && (itr->first)->normalized_map_mass())
+                    {
+                        maternal_trans_fpkms(j) /= (itr->first)->normalized_map_mass();
+                        maternal_trans_fpkms(j) *= 1000000000;
+                        maternal_trans_fpkms(j) /= _abundances[i]->maternal_effective_length();
+                        maternal_trans_fpkms(j) /= (itr->first)->external_scale_factor();
+                    }
+                    else
+                    {
+                        maternal_trans_fpkms(j) = 0;
+                    }                    
+                }
+
+                std::map<boost::shared_ptr<ReadGroupProperties const >, AbundanceStatus>::const_iterator status_rep_itr = status_per_replicate.find(itr->first);
+                assert (status_rep_itr != status_per_replicate.end());
+                paternal_cpr[itr->first] = paternal_trans_counts[i];
+				maternal_cpr[itr->first] = maternal_trans_counts[i];
+                paternal_fpr[itr->first] = paternal_trans_fpkms[i];
+				maternal_fpr[itr->first] = maternal_trans_fpkms[i];
+                paternal_spr[itr->first] = status_rep_itr->second;
+				maternal_spr[itr->first] = status_rep_itr->second;
+            }
+            _abundances[i]->num_paternal_fragments_by_replicate(paternal_cpr);
+			_abundances[i]->num_maternal_fragments_by_replicate(maternal_cpr);
+            _abundances[i]->paternal_FPKM_by_replicate(paternal_fpr);
+			_abundances[i]->maternal_FPKM_by_replicate(maternal_fpr);
+            _abundances[i]->paternal_status_by_replicate(paternal_spr);
+			_abundances[i]->maternal_status_by_replicate(maternal_spr);
+        }
+    }
+
+	mapped_transcripts.clear();
+	compute_cond_probs_and_effective_lengths_allele(non_equiv_alignments, transcripts, mapped_transcripts);
+    
+	
+    //non_equiv_alignments.clear();
+	//collapse_hits(alignments, nr_alignments);
+    //This will also compute the transcript level FPKMs
+ 
+    calculate_iterated_exp_count_covariance(non_equiv_alignments, transcripts);
+
+    // Calculate the initial estimates for the number of fragments originating
+    // from each transcript, and set the NB variances
+    calculate_locus_scaled_mass_and_variance(non_equiv_alignments, transcripts);  
+
+    // Refresh the variances to match the new gammas computed during iterated
+    // expectation
+    // calculate_locus_scaled_mass_and_variance(non_equiv_alignments, transcripts);  
+    
+	if(corr_multi && !final_est_run)
+	{
+		update_multi_reads(non_equiv_alignments, mapped_transcripts);
+	}
+	if (final_est_run) // Only on last estimation run
+	{
+        // Simulate NB draws and fragment assignment under uncertainty to sample
+        // from the BNBs.
+        simulate_count_covariance(non_equiv_alignments, transcripts);
+		
+		// Calling calculate_FPKM_covariance() also estimates cross-replicate
+        // count variances
+		
+		calculate_FPKM_covariance();
+
+		// Derive confidence intervals from the FPKM variance/covariance matrix
+        calculate_conf_intervals();
+		
+		// Calculate the inter-group relative abundances and variances
+        if (no_js_tests == false)
+        {
+            calculate_kappas();
+        }
+	}
+}
+
+void AlleleAbundanceGroup::update_multi_reads(const vector<MateHit>& alignments, vector<boost::shared_ptr<Abundance> > transcripts)
+{
+	size_t M = alignments.size();
+	size_t N = transcripts.size();
+	
+	if (transcripts.empty())
+		return;
+    
+    for (size_t i = 0; i < M; ++i)
+	{
+		if (alignments[i].is_multi())
+		{
+			double paternal_expr = 0.0;
+			double maternal_expr = 0.0;
+			for (size_t j = 0; j < N; ++j)
+			{
+				paternal_expr += _abundances[j]->paternal_cond_probs()->at(i) * _abundances[j]->paternal_FPKM() * _abundances[j]->paternal_effective_length();
+				maternal_expr += _abundances[j]->maternal_cond_probs()->at(i) * _abundances[j]->maternal_FPKM() * _abundances[j]->maternal_effective_length();
+			}
+			alignments[i].read_group_props()->multi_read_table()->add_expr(alignments[i], paternal_expr+maternal_expr, paternal_expr, maternal_expr);
+		}
+	}
+}
+
+void AlleleAbundanceGroup::simulate_count_covariance(const vector<MateHit>& nr_alignments,
+													 const vector<boost::shared_ptr<Abundance> >& transcripts)
+{
+	_parental_count_covariance = ublas::zero_matrix<double>(2*_abundances.size(),2*_abundances.size());
+    
+    if (_abundances.size() == 0)
+	{
+		return;
+		
+	}
+    if ((num_paternal_fragments() == 0) && (num_maternal_fragments() == 0))
+    {
+        return;
+    }
+    
+    //size_t num_frag_count_draws = 1000;
+    //const int num_multinomial_samples = 1;
+    
+    boost::mt19937 rng;
+    
+    vector<boost::random::negative_binomial_distribution<int, double> > paternal_nb_gens;
+	vector<boost::random::negative_binomial_distribution<int, double> > maternal_nb_gens;
+    vector<Eigen::VectorXd > paternal_generated_counts (num_frag_count_draws, Eigen::VectorXd::Zero(_abundances.size()));
+	vector<Eigen::VectorXd > maternal_generated_counts (num_frag_count_draws, Eigen::VectorXd::Zero(_abundances.size()));
+    
+    for (size_t j = 0; j < _abundances.size(); ++j)
+    {
+        double r = _abundances[j]->num_paternal_fragments();
+        if (r > 0)
+        {
+			double fit_var = _abundances[j]->paternal_mass_variance();
+			if (fit_var - _abundances[j]->num_paternal_fragments() > 1e-1)
+            {
+				r *= r;
+                double over_disp_scale = fit_var - _abundances[j]->num_paternal_fragments();
+                r /= over_disp_scale;
+                r = rounding::roundhalfeven(r);
+                
+                if (r == 0)
+                {
+                    for (size_t i = 0; i < num_frag_count_draws; ++i)
+                    {
+                        paternal_generated_counts[i](j) = 0;
+                    }
+                    continue;
+                }
+                
+                double p = _abundances[j]->num_paternal_fragments() / fit_var;
+                
+                boost::random::negative_binomial_distribution<int, double> nb_j(r, p);
+                for (size_t i = 0; i < num_frag_count_draws; ++i)
+                {
+                    paternal_generated_counts[i](j) = nb_j(rng);
+                }
+            }
+            else
+            {
+                r = rounding::roundhalfeven(r);
+                if (r == 0)
+                {
+                    for (size_t i = 0; i < num_frag_count_draws; ++i)
+                    {
+                        paternal_generated_counts[i](j) = 0;
+                    }
+                    continue;
+                }
+                
+                boost::random::poisson_distribution<int, double> nb_j(r);
+                for (size_t i = 0; i < num_frag_count_draws; ++i)
+                {
+                    paternal_generated_counts[i](j) = nb_j(rng);
+                }
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < num_frag_count_draws; ++i)
+            {
+                paternal_generated_counts[i](j) = 0;
+            }
+        }           
+    }
+	for (size_t j = 0; j < _abundances.size(); ++j)
+    {
+        double r = _abundances[j]->num_maternal_fragments();
+        if (r > 0)
+        {
+			double fit_var = _abundances[j]->maternal_mass_variance();
+			if (fit_var - _abundances[j]->num_maternal_fragments() > 1e-1)
+            {
+				r *= r;
+                double over_disp_scale = fit_var - _abundances[j]->num_maternal_fragments();
+                r /= over_disp_scale;
+                r = rounding::roundhalfeven(r);
+                
+                if (r == 0)
+                {
+                    for (size_t i = 0; i < num_frag_count_draws; ++i)
+                    {
+                        maternal_generated_counts[i](j) = 0;
+                    }
+                    continue;
+                }
+                
+                double p = _abundances[j]->num_maternal_fragments() / fit_var;
+                
+                boost::random::negative_binomial_distribution<int, double> nb_j(r, p);
+                for (size_t i = 0; i < num_frag_count_draws; ++i)
+                {
+                    maternal_generated_counts[i](j) = nb_j(rng);
+                }
+            }
+            else
+            {
+                r = rounding::roundhalfeven(r);
+                if (r == 0)
+                {
+                    for (size_t i = 0; i < num_frag_count_draws; ++i)
+                    {
+                        maternal_generated_counts[i](j) = 0;
+                    }
+                    continue;
+                }
+                
+                boost::random::poisson_distribution<int, double> nb_j(r);
+                for (size_t i = 0; i < num_frag_count_draws; ++i)
+                {
+                    maternal_generated_counts[i](j) = nb_j(rng);
+                }
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < num_frag_count_draws; ++i)
+            {
+                maternal_generated_counts[i](j) = 0;
+            }
+        }           
+    }
+    
+    ublas::matrix<double> assign_paternal_probs_transpose = ublas::trans(_paternal_assign_probs);
+	ublas::matrix<double> assign_maternal_probs_transpose = ublas::trans(_maternal_assign_probs);
+    vector<Eigen::VectorXd > assigned_paternal_counts (num_frag_count_draws * num_frag_assignments, Eigen::VectorXd::Zero(_abundances.size()));
+	vector<Eigen::VectorXd > assigned_maternal_counts (num_frag_count_draws * num_frag_assignments, Eigen::VectorXd::Zero(_abundances.size()));
+ 
+    Eigen::MatrixXd paternal_transcript_cond_probs(_abundances.size(), nr_alignments.size());
+	Eigen::MatrixXd maternal_transcript_cond_probs(_abundances.size(), nr_alignments.size());
+    for (int j = 0; j < paternal_transcript_cond_probs.rows(); ++j)
+    {
+        for (int i = 0; i < paternal_transcript_cond_probs.cols(); ++i)
+        {
+            paternal_transcript_cond_probs(j,i) = (*(transcripts[j]->paternal_cond_probs()))[i];
+        }
+    }
+	for (int j = 0; j < maternal_transcript_cond_probs.rows(); ++j)
+    {
+        for (int i = 0; i < maternal_transcript_cond_probs.cols(); ++i)
+        {
+            maternal_transcript_cond_probs(j,i) = (*(transcripts[j]->maternal_cond_probs()))[i];
+        }
+    }
+	
+    Eigen::VectorXd aligment_multiplicities(nr_alignments.size());
+    for (int i = 0; i < aligment_multiplicities.size(); ++i)
+    {
+        aligment_multiplicities[i] = nr_alignments[i].collapse_mass();
+    }
+    
+    boost::uniform_01<> uniform_dist;
+    boost::mt19937 null_rng; 
+    boost::variate_generator<boost::mt19937&, boost::uniform_01<> > uniform_gen(null_rng, uniform_dist); 
+    
+	assert(paternal_transcript_cond_probs.cols() == maternal_transcript_cond_probs.cols());
+	vector< vector<double> > selector_variates (num_frag_assignments, vector<double>(paternal_transcript_cond_probs.cols(), 0.0));
+    for (size_t i = 0; i < num_frag_assignments; ++i)
+    {
+        vector<double>& selector = selector_variates[i];
+		for (int frag_idx = 0; frag_idx < paternal_transcript_cond_probs.cols(); ++frag_idx)
+        {
+            selector[frag_idx] = uniform_gen();
+		}
+	}
+	
+    Eigen::VectorXd expected_paternal_generated_counts = Eigen::VectorXd::Zero(_abundances.size());
+	Eigen::VectorXd expected_maternal_generated_counts = Eigen::VectorXd::Zero(_abundances.size());
+    
+    for (size_t i = 0; i < num_frag_count_draws; ++i)
+    {
+        //ublas::vector<double> proposed_gammas = generated_counts[i];
+        Eigen::VectorXd proposed_paternal_gammas = paternal_generated_counts[i];
+		Eigen::VectorXd proposed_maternal_gammas = maternal_generated_counts[i];
+        
+        double total_sample_frags = paternal_generated_counts[i].sum() + maternal_generated_counts[i].sum();
+        double total_true_frags = aligment_multiplicities.sum();
+        
+        if (total_sample_frags == 0)
+            continue;
+        proposed_paternal_gammas /= total_sample_frags;
+		proposed_maternal_gammas /= total_sample_frags;
+        
+        expected_paternal_generated_counts += paternal_generated_counts[i];
+		expected_maternal_generated_counts += maternal_generated_counts[i];
+
+        // This is the full fragment assignment scheme:
+        
+        Eigen::MatrixXd assign_paternal_probs;
+		Eigen::MatrixXd assign_maternal_probs;
+        calculate_assignment_probs(aligment_multiplicities, paternal_transcript_cond_probs, maternal_transcript_cond_probs, proposed_paternal_gammas, proposed_maternal_gammas, assign_paternal_probs, assign_maternal_probs);
+        for (size_t j = 0; j < num_frag_assignments; ++j)
+        {
+            Eigen::VectorXd assigned_paternal_frag_counts = Eigen::VectorXd::Zero(_abundances.size());
+			Eigen::VectorXd assigned_maternal_frag_counts = Eigen::VectorXd::Zero(_abundances.size());
+            vector<double>& selector = selector_variates[j];
+            for (int frag_idx = 0; frag_idx < assign_paternal_probs.cols(); ++frag_idx)
+            {               
+                double s = 0.0;
+                double p = selector[frag_idx];
+                for (size_t a_idx = 0; a_idx < _abundances.size(); ++a_idx)
+                {
+                    if (p < s + assign_paternal_probs(a_idx, frag_idx))
+                    {
+                        assigned_paternal_frag_counts(a_idx) += (aligment_multiplicities[frag_idx] / total_true_frags) * total_sample_frags;
+                        break;
+                    }
+					else if (p < s + assign_paternal_probs(a_idx, frag_idx) + assign_maternal_probs(a_idx, frag_idx))
+                    {
+                        assigned_maternal_frag_counts(a_idx) += (aligment_multiplicities[frag_idx] / total_true_frags) * total_sample_frags;
+                        break;
+                    }
+					s += assign_paternal_probs(a_idx, frag_idx) + assign_maternal_probs(a_idx, frag_idx);
+                }
+            }
+            assigned_paternal_counts[i*num_frag_assignments + j] = assigned_paternal_frag_counts;
+			assigned_maternal_counts[i*num_frag_assignments + j] = assigned_maternal_frag_counts;
+        }
+		        
+//        // This is the sampled pseudofragment scheme:
+//        Eigen::MatrixXd avg_assign_probs;
+//        calculate_average_assignment_probs(aligment_multiplicities, transcript_cond_probs, proposed_gammas, avg_assign_probs);
+//        for (size_t j = 0; j < num_frag_assignments; ++j)
+//        {
+//            Eigen::VectorXd assigned_frag_counts = Eigen::VectorXd::Zero(_abundances.size());
+//            
+//            for (size_t trans_idx = 0; trans_idx < generated_counts[i].size(); ++trans_idx)
+//            {
+//                size_t frags_from_transcript = generated_counts[i][trans_idx];
+//                for (size_t frag_idx = 0; frag_idx < frags_from_transcript; ++frag_idx)
+//                {
+//                    double s = 0.0;
+//                    double p = uniform_gen();
+//                    for (size_t a_idx = 0; a_idx < generated_counts[i].size(); ++a_idx)
+//                    {
+//                        if (p < s + avg_assign_probs(trans_idx, a_idx))
+//                        {
+//                            assigned_frag_counts(a_idx) += 1;
+//                            break;
+//                        }
+//                        s += avg_assign_probs(trans_idx, a_idx);
+//                    }
+//                }
+//            }
+//            
+//            assigned_counts[i*num_frag_assignments + j] = assigned_frag_counts;
+//            //assigned_counts[i*num_frag_assignments + j] = avg_assign_probs.transpose() * generated_counts[i];
+//            //cerr << assigned_counts[i*num_frag_assignments + j].transpose() << endl;
+//        }
+        
+    }
+    
+    Eigen::VectorXd expected_paternal_counts = Eigen::VectorXd::Zero(_abundances.size());
+	Eigen::VectorXd expected_maternal_counts = Eigen::VectorXd::Zero(_abundances.size());
+    Eigen::VectorXd expected_relative_paternal_abundances = Eigen::VectorXd::Zero(_abundances.size());
+	Eigen::VectorXd expected_relative_maternal_abundances = Eigen::VectorXd::Zero(_abundances.size());
+    
+    for (size_t i = 0; i < assigned_paternal_counts.size(); ++i)
+    {
+        for (int j = 0; j < assigned_paternal_counts[i].size(); ++j)
+        {
+            assert (!isnan(assigned_paternal_counts[i](j)) && !isinf(assigned_paternal_counts[i](j)));
+        }
+        expected_paternal_counts += assigned_paternal_counts[i];
+        //
+        //expected_relative_abundances += relative_abundances[i];
+    }
+    if (assigned_paternal_counts.size() > 0)
+    {
+        expected_paternal_counts /= assigned_paternal_counts.size();
+        //expected_generated_counts /= assigned_counts.size();
+        //expected_relative_abundances /= assigned_counts.size();
+    }
+    
+    for (size_t i = 0; i < assigned_maternal_counts.size(); ++i)
+    {
+        for (int j = 0; j < assigned_maternal_counts[i].size(); ++j)
+        {
+            assert (!isnan(assigned_maternal_counts[i](j)) && !isinf(assigned_maternal_counts[i](j)));
+        }
+        expected_maternal_counts += assigned_maternal_counts[i];
+        //
+        //expected_relative_abundances += relative_abundances[i];
+    }
+    if (assigned_maternal_counts.size() > 0)
+    {
+        expected_maternal_counts /= assigned_maternal_counts.size();
+        //expected_generated_counts /= assigned_counts.size();
+        //expected_relative_abundances /= assigned_counts.size();
+    }
+	if (num_frag_assignments > 0)
+    {
+		expected_paternal_generated_counts /= num_frag_assignments;
+        expected_maternal_generated_counts /= num_frag_assignments;
+        //expected_relative_paternal_abundances /= assigned_paternal_counts.size();
+		//expected_relative_maternal_abundances /= assigned_maternal_counts.size();
+    }
+      
+//    cerr << "======" << endl;
+//    cerr << "updated expected counts #1: " << endl;
+//    std::cerr << expected_counts << std::endl;
+//    cerr << "updated expected generated counts #1: " << endl;
+//    std::cerr << expected_generated_counts << std::endl;
+//    cerr << "======" << endl;
+    
+	assert(assigned_paternal_counts.size() == assigned_maternal_counts.size());
+	for (size_t i = 0; i < _abundances.size(); ++i)
+    {
+        for (size_t j = 0; j < _abundances.size(); ++j)
+        {
+            for (size_t k = 0 ; k < assigned_paternal_counts.size(); ++k)
+            {
+                double cpp = (assigned_paternal_counts[k](i) - expected_paternal_counts(i)) * (assigned_paternal_counts[k](j) - expected_paternal_counts(j));
+                _parental_count_covariance(i,j) += cpp;
+				double cpm = (assigned_paternal_counts[k](i) - expected_paternal_counts(i)) * (assigned_maternal_counts[k](j) - expected_maternal_counts(j));
+                _parental_count_covariance(i,j+_abundances.size()) += cpm;
+				
+				double cmm = (assigned_maternal_counts[k](i) - expected_maternal_counts(i)) * (assigned_maternal_counts[k](j) - expected_maternal_counts(j));
+                _parental_count_covariance(i+_abundances.size(),j+_abundances.size()) += cmm;
+				double cmp = (assigned_maternal_counts[k](i) - expected_maternal_counts(i)) * (assigned_paternal_counts[k](j) - expected_paternal_counts(j));
+                _parental_count_covariance(i+_abundances.size(),j) += cmp;
+				
+                assert (!isinf(_parental_count_covariance(i,j)) && !isnan(_parental_count_covariance(i,j)));
+				assert (!isinf(_parental_count_covariance(i,j+_abundances.size())) && !isnan(_parental_count_covariance(i,j+_abundances.size())));
+				assert (!isinf(_parental_count_covariance(i+_abundances.size(),j+_abundances.size())) && !isnan(_parental_count_covariance(i+_abundances.size(),j+_abundances.size())));
+				assert (!isinf(_parental_count_covariance(i+_abundances.size(),j)) && !isnan(_parental_count_covariance(i+_abundances.size(),j)));
+                //double r = (relative_abundances[k](i) - expected_relative_abundances(i)) * (relative_abundances[k](j) - expected_relative_abundances(j));
+                //_kappa_covariance(i,j) += 
+            }
+        }
+    }
+    
+    _parental_count_covariance /= (assigned_paternal_counts.size()+assigned_maternal_counts.size());
+
+//    double total_counts = expected_counts.sum();
+//    for (size_t i = 0; i < _abundances.size(); ++i)
+//    {
+//        if (total_counts > 0)
+//        {
+//            _abundances[i]->gamma(expected_counts(i) / total_counts);
+//        }
+//        else
+//        {
+//            _abundances[i]->gamma(0);
+//        }
+//    }
+    
+    for (size_t i = 0; i < 2*_abundances.size(); ++i)
+    {
+        // Make sure we aren't below the fit for the single isoform case
+		if(i < _abundances.size())
+		{
+			if (_parental_count_covariance(i,i) < ceil(_abundances[i]->paternal_mass_variance()))
+			{
+				//fprintf(stderr, "Counts for %d (var = %lg) are underdispersed, reverting to fitted variance model (%lg)\n", i, _count_covariance(i,i), ceil(_abundances[i]->mass_variance()));
+				_parental_count_covariance(i,i) = ceil(_abundances[i]->paternal_mass_variance());
+			}
+			// Check that we aren't below what the Poisson model says we ought to be at
+			if (_parental_count_covariance(i,i) < ceil(_abundances[i]->num_paternal_fragments() + _iterated_exp_parental_count_covariance(i,i)))
+			{
+				//fprintf(stderr, "Counts for %d (var = %lg) are underdispersed, reverting to additive variance model (%lg)\n", i, _count_covariance(i,i),  ceil(_abundances[i]->num_fragments() + _iterated_exp_count_covariance(i,i)));
+				_parental_count_covariance(i,i) = ceil(_abundances[i]->num_paternal_fragments() + _iterated_exp_parental_count_covariance(i,i));
+			}
+		}
+		else
+		{
+			if (_parental_count_covariance(i,i) < ceil(_abundances[i-_abundances.size()]->maternal_mass_variance()))
+			{
+				//fprintf(stderr, "Counts for %d (var = %lg) are underdispersed, reverting to fitted variance model (%lg)\n", i, _count_covariance(i,i), ceil(_abundances[i]->mass_variance()));
+				_parental_count_covariance(i,i) = ceil(_abundances[i-_abundances.size()]->maternal_mass_variance());
+			}
+			// Check that we aren't below what the Poisson model says we ought to be at
+			if (_parental_count_covariance(i,i) < ceil(_abundances[i-_abundances.size()]->num_maternal_fragments() + _iterated_exp_parental_count_covariance(i,i)))
+			{
+				//fprintf(stderr, "Counts for %d (var = %lg) are underdispersed, reverting to additive variance model (%lg)\n", i, _count_covariance(i,i),  ceil(_abundances[i]->num_fragments() + _iterated_exp_count_covariance(i,i)));
+				_parental_count_covariance(i,i) = ceil(_abundances[i-_abundances.size()]->num_fragments() + _iterated_exp_parental_count_covariance(i,i));
+			}
+		}
+        
+        long double count_var = 0.0;
+        
+        // Check that we aren't below what the BNB model says we ought to be at
+		bool numerics_ok;
+		//I use (num_paternal_fragments()+num_maternal_fragments()) as the 4th argument since the estimate_count_variance functions expects X_g as te 4th argument
+		if(i < _abundances.size())
+		{
+			numerics_ok = estimate_count_variance(count_var,
+													   _abundances[i]->paternal_gamma(),
+													   _iterated_exp_parental_count_covariance(i,i),
+													   (num_paternal_fragments()+num_maternal_fragments()),
+													   _abundances[i]->paternal_mass_variance(),
+													   _abundances[i]->paternal_effective_length());
+		}
+		else
+		{
+			numerics_ok = estimate_count_variance(count_var,
+													   _abundances[i-_abundances.size()]->maternal_gamma(),
+													   _iterated_exp_parental_count_covariance(i,i),
+													   (num_paternal_fragments()+num_maternal_fragments()),
+													   _abundances[i-_abundances.size()]->maternal_mass_variance(),
+													   _abundances[i-_abundances.size()]->maternal_effective_length());
+		}
+//        if (numerics_ok == false)
+//        {
+//            fprintf(stderr, "Warning: BNB has no analytic solution\n");
+//        }
+        
+		if (numerics_ok && _parental_count_covariance(i,i) < ceil(count_var))
+		{
+			//fprintf(stderr, "Counts for %d (var = %lg) are underdispersed, reverting to additive variance model (%lg)\n", i, _count_covariance(i,i),  ceil(_abundances[i]->num_fragments() + _iterated_exp_count_covariance(i,i)));
+			_parental_count_covariance(i,i) = ceil(count_var);
+        }
+    }
+//    for (size_t i = 0; i < _abundances.size(); ++i)
+//    {
+//        _count_covariance(i,i) = ceil(_count_covariance(i,i));
+//    }
+    
+//    cerr << "simulated count covariance: " << endl;
+//    for (unsigned i = 0; i < _count_covariance.size1 (); ++ i) 
+//    {
+//        ublas::matrix_row<ublas::matrix<double> > mr (_count_covariance, i);
+//        cerr << i << " : " << _abundances[i]->num_fragments() << " : ";
+//        std::cerr << i << " : " << mr << std::endl;
+//    }
+//    cerr << "======" << endl;
+//    cerr << "updated expected counts: " << endl;
+//    std::cerr << expected_counts << std::endl;
+//    cerr << "======" << endl;
+    
+        
+    _assigned_paternal_count_samples = assigned_paternal_counts;
+	_assigned_maternal_count_samples = assigned_maternal_counts;
+    
+//    for (size_t i = 0; i < num_count_draws; ++i)
+//    {
+//        cerr << generated_counts[i] << endl;
+//        
+//    }
+}
+
+
+void AlleleAbundanceGroup::calculate_FPKM_covariance()
+{
+
+	bool pass = true;
+	if ((paternal_mass_fraction()+maternal_mass_fraction()) == 0 || (paternal_effective_length() == 0 && maternal_effective_length() == 0))
+	{
+		_parental_fpkm_covariance = ublas::zero_matrix<double>(2*_abundances.size(), 2*_abundances.size());
+		pass = false;
+	}
+	if(!pass) return;
+    //long double M = num_fragments()/mass_fraction();
+    
+    //estimate_count_covariance();
+    
+    long double total_paternal_var = 0.0;
+	long double total_maternal_var = 0.0;
+    
+    double paternal_abundance_weighted_length = 0.0;
+	double maternal_abundance_weighted_length = 0.0;
+    double total_paternal_abundance = 0.0;
+	double total_maternal_abundance = 0.0;
+    
+    double external_scale_factor = -1.0;
+    
+    double M = 0;
+    
+    for (map<boost::shared_ptr<ReadGroupProperties const>, double>::iterator itr = _count_per_replicate.begin();
+         itr != _count_per_replicate.end();
+         ++itr)
+    {
+        boost::shared_ptr<ReadGroupProperties const> rg_props = itr->first;
+        M += rg_props->normalized_map_mass();
+        
+        if (external_scale_factor < 0)
+        {
+            external_scale_factor = rg_props->external_scale_factor();
+        }
+        else
+        {
+            assert (external_scale_factor == rg_props->external_scale_factor());
+        }
+    }
+    
+    M /= _count_per_replicate.size();
+	for (size_t j = 0; j < 2*_abundances.size(); ++j)
+    {
+		//not sure if this is correct but these 2 variables are not used anyway
+		if(j < _abundances.size())
+		{
+			paternal_abundance_weighted_length += _abundances[j]->paternal_effective_length() * _abundances[j]->paternal_FPKM();
+			total_paternal_abundance += _abundances[j]->paternal_FPKM();
+		}
+		
+		else
+		{
+			maternal_abundance_weighted_length += _abundances[j-_abundances.size()]->maternal_effective_length() * _abundances[j-_abundances.size()]->maternal_FPKM();
+			total_maternal_abundance += _abundances[j-_abundances.size()]->maternal_FPKM();
+		}
+		        
+        for (size_t i = 0; i < 2*_abundances.size(); ++i)
+        {
+            _parental_fpkm_covariance(i,j) = _parental_count_covariance(i,j);
+            
+            // FPKMs need to be on the external scale, so we can compare them
+            // between conditions.  Counts are internally scaled up until here.
+            _parental_fpkm_covariance(i,j) *= 1.0 / (external_scale_factor * external_scale_factor);
+            assert (!isinf(_parental_count_covariance(i,j)) && !isnan(_parental_fpkm_covariance(i,j)));
+			long double length_i,length_j;
+			if(j < _abundances.size())
+			{
+				length_j = _abundances[j]->paternal_effective_length();
+			}
+			else{
+				length_j = _abundances[j-_abundances.size()]->maternal_effective_length();
+			}
+			if(i < _abundances.size())
+			{
+				length_i = _abundances[i]->paternal_effective_length();
+			}
+			else
+			{
+				length_i = _abundances[i-_abundances.size()]->maternal_effective_length();
+			}
+            
+            assert (!isinf(length_i) && !isnan(length_i));
+            assert (!isinf(length_j) && !isnan(length_j));
+            if (length_i > 0 && length_j > 0)
+            {
+                _parental_fpkm_covariance(i,j) *=
+                    ((1000000000.0 / (length_j *M)))*((1000000000.0 / (length_i *M)));
+                assert (!isinf(_parental_fpkm_covariance(i,j)) && !isnan(_parental_fpkm_covariance(i,j)));
+            }
+            else
+            {
+                _parental_fpkm_covariance(i,j) = 0.0;
+            }
+            
+            if (i == j)
+            {
+				if(j < _abundances.size() && i < _abundances.size())
+				{
+					double fpkm = _abundances[i]->paternal_FPKM();
+					double fpkm_var = _parental_fpkm_covariance(i,j);
+					assert (fpkm == 0 || fpkm_var > 0 || _abundances[i]->paternal_status() != NUMERIC_OK);
+					assert (!isinf(fpkm_var) && !isnan(fpkm_var));
+					_abundances[i]->paternal_FPKM_variance(fpkm_var);
+					_abundances[i]->num_paternal_fragment_var(_parental_count_covariance(i,j)); 
+					total_paternal_var += _parental_fpkm_covariance(i,j);
+				}
+				else
+				{
+					double fpkm = _abundances[i-_abundances.size()]->maternal_FPKM();
+					double fpkm_var = _parental_fpkm_covariance(i,j);
+					assert (fpkm == 0 || fpkm_var > 0 || _abundances[i-_abundances.size()]->maternal_status() != NUMERIC_OK);
+					assert (!isinf(fpkm_var) && !isnan(fpkm_var));
+					_abundances[i-_abundances.size()]->maternal_FPKM_variance(fpkm_var);
+					_abundances[i-_abundances.size()]->num_maternal_fragment_var(_parental_count_covariance(i,j)); 
+					total_maternal_var += _parental_fpkm_covariance(i,j);
+				}				
+            }
+			assert (!isinf(_parental_fpkm_covariance(i,j)) && !isnan(_parental_fpkm_covariance(i,j)));
+        }
+    }
+
+	_paternal_FPKM_variance = total_paternal_var;
+	_maternal_FPKM_variance = total_maternal_var;
+
+    if (final_est_run && library_type != "transfrags")
+    {
+        ublas::matrix<double> test = _parental_fpkm_covariance;
+        double ret = cholesky_factorize(test);
+		
+        if (ret != 0 || (_paternal_FPKM_variance < 0 && paternal_status() == NUMERIC_OK))
+        {
+			//fprintf(stderr, "Warning: FPKM covariance is not positive definite (ret = %lg)!\n", ret);
+            for (size_t j = 0; j < _abundances.size(); ++j)
+            {
+				_abundances[j]->paternal_status(NUMERIC_FAIL);
+            }
+        }
+		if (ret != 0 || (_maternal_FPKM_variance < 0 && maternal_status() == NUMERIC_OK))
+        {
+			//fprintf(stderr, "Warning: FPKM covariance is not positive definite (ret = %lg)!\n", ret);
+            for (size_t j = 0; j < _abundances.size(); ++j)
+            {
+                _abundances[j]->maternal_status(NUMERIC_FAIL);
+            }
+        }
+		assert(paternal_status() == maternal_status());
+		assert (paternal_FPKM()+maternal_FPKM() == 0 || (_paternal_FPKM_variance > 0 || paternal_status() != NUMERIC_OK) || (_maternal_FPKM_variance > 0 || maternal_status() != NUMERIC_OK));
+    }
+    assert (!isinf(_paternal_FPKM_variance) && !isnan(_paternal_FPKM_variance));
+	assert (!isinf(_maternal_FPKM_variance) && !isnan(_maternal_FPKM_variance));
+}
+
+
+void AlleleAbundanceGroup::calculate_conf_intervals()
+{    
+    // We only really ever call this function for primary abundance groups
+    // (i.e. the transcript groups and read bundles with which we calculate
+    // transcript MLE expression levels.  Genes, TSS groups, etc get broken
+    // off of primary bundles, so we should not call this function on those
+    // secondary groups.  The group splitting code needs to manage the task
+    // of splitting up all the variout covariance matrices we're calculating
+    // here.
+	if (paternal_status() == NUMERIC_OK)
+	{
+		// This will compute the transcript level FPKM confidence intervals
+		for (size_t j = 0; j < _abundances.size(); ++j)
+		{
+            long double paternal_fpkm_var = _abundances[j]->paternal_FPKM_variance();
+			double paternal_FPKM_hi = 0.0;      
+            double paternal_FPKM_lo = 0.0;
+            if (_abundances[j]->paternal_status() != NUMERIC_FAIL)
+            {
+                paternal_FPKM_hi = _abundances[j]->paternal_FPKM() + 2 * sqrt(paternal_fpkm_var);
+                paternal_FPKM_lo = max(0.0, (double)(_abundances[j]->paternal_FPKM() - 2 * sqrt(paternal_fpkm_var)));
+                if (!(paternal_FPKM_lo <= _abundances[j]->paternal_FPKM() && _abundances[j]->paternal_FPKM() <= paternal_FPKM_hi))
+                {
+                    //fprintf(stderr, "Error: confidence intervals are illegal! var = %Lg, fpkm = %lg, lo = %lg, hi %lg, status = %d\n", fpkm_var, _abundances[j]->FPKM(), FPKM_lo, FPKM_hi, _abundances[j]->status());
+                }
+                assert (paternal_FPKM_lo <= _abundances[j]->paternal_FPKM() && _abundances[j]->paternal_FPKM() <= paternal_FPKM_hi);
+                ConfidenceInterval paternal_conf(paternal_FPKM_lo, paternal_FPKM_hi);
+                _abundances[j]->paternal_FPKM_conf(paternal_conf);
+                //_abundances[j]->paternal_FPKM_variance(paternal_fpkm_var);
+            }
+            else
+            {
+                // we shouldn't be able to get here
+                assert(false);
+                // TODO: nothing to do here?
+            }
+		}
+		
+        // Now build a confidence interval for the whole abundance group
+		if (paternal_FPKM() > 0.0)
+		{
+			double paternal_FPKM_hi = paternal_FPKM() + 2 * sqrt(paternal_FPKM_variance());
+			double paternal_FPKM_lo = max(0.0, paternal_FPKM() - 2 * sqrt(paternal_FPKM_variance()));
+			ConfidenceInterval paternal_conf(paternal_FPKM_lo, paternal_FPKM_hi);
+			paternal_FPKM_conf(paternal_conf);
+		}
+		else
+		{
+			_paternal_FPKM_variance = 0.0;
+			ConfidenceInterval paternal_conf(0.0, 0.0);
+			paternal_FPKM_conf(paternal_conf);
+		}
+	}
+	else
+	{
+		double sum_paternal_transfrag_FPKM_hi = 0;
+        double max_paternal_fpkm = 0.0;
+        //double min_fpkm = 1e100;
+		BOOST_FOREACH (boost::shared_ptr<Abundance> pA, _abundances)
+		{
+			double paternal_FPKM_hi;
+			double paternal_FPKM_lo;
+			if (pA->paternal_effective_length() > 0)
+			{
+                double norm_paternal_frag_density = 1000000000;
+                norm_paternal_frag_density /= pA->paternal_effective_length();
+                norm_paternal_frag_density *= (paternal_mass_fraction());
+                double paternal_fpkm_high = norm_paternal_frag_density;
+                
+                double paternal_var_fpkm = paternal_fpkm_high; 
+                
+				paternal_FPKM_hi = paternal_fpkm_high + 2 * sqrt(paternal_var_fpkm);
+				paternal_FPKM_lo = 0.0;
+				ConfidenceInterval paternal_conf(paternal_FPKM_lo, paternal_FPKM_hi);
+				assert (paternal_FPKM_lo <= pA->paternal_FPKM() && pA->paternal_FPKM() <= paternal_FPKM_hi);
+				pA->paternal_FPKM_conf(paternal_conf);
+                //pA->paternal_FPKM_variance(paternal_var_fpkm);
+				max_paternal_fpkm = max(sum_paternal_transfrag_FPKM_hi, paternal_FPKM_hi);
+			}
+			else
+			{
+				paternal_FPKM_hi = 0.0;
+				paternal_FPKM_lo = 0.0;
+				ConfidenceInterval paternal_conf(0.0, 0.0);
+				pA->paternal_FPKM_conf(paternal_conf);
+                //pA->paternal_FPKM_variance(0.0);
+			}
+            
+		}
+		// In the case of a numeric failure, the groups error bars need to be 
+		// set such that 
+		paternal_FPKM_conf(ConfidenceInterval(0.0, max_paternal_fpkm + 2 * sqrt(paternal_FPKM_variance())));
+	}
+	//
+	if (maternal_status() == NUMERIC_OK)
+	{
+		// This will compute the transcript level FPKM confidence intervals
+		for (size_t j = 0; j < _abundances.size(); ++j)
+		{
+            long double maternal_fpkm_var = _abundances[j]->maternal_FPKM_variance();
+			double maternal_FPKM_hi = 0.0;      
+            double maternal_FPKM_lo = 0.0;
+            if (_abundances[j]->maternal_status() != NUMERIC_FAIL)
+            {
+                maternal_FPKM_hi = _abundances[j]->maternal_FPKM() + 2 * sqrt(maternal_fpkm_var);
+                maternal_FPKM_lo = max(0.0, (double)(_abundances[j]->maternal_FPKM() - 2 * sqrt(maternal_fpkm_var)));
+                if (!(maternal_FPKM_lo <= _abundances[j]->maternal_FPKM() && _abundances[j]->maternal_FPKM() <= maternal_FPKM_hi))
+                {
+                    //fprintf(stderr, "Error: confidence intervals are illegal! var = %Lg, fpkm = %lg, lo = %lg, hi %lg, status = %d\n", fpkm_var, _abundances[j]->FPKM(), FPKM_lo, FPKM_hi, _abundances[j]->status());
+                }
+                assert (maternal_FPKM_lo <= _abundances[j]->maternal_FPKM() && _abundances[j]->maternal_FPKM() <= maternal_FPKM_hi);
+                ConfidenceInterval maternal_conf(maternal_FPKM_lo, maternal_FPKM_hi);
+                _abundances[j]->maternal_FPKM_conf(maternal_conf);
+                //_abundances[j]->maternal_FPKM_variance(maternal_fpkm_var);
+            }
+            else
+            {
+                // we shouldn't be able to get here
+                assert(false);
+                // TODO: nothing to do here?
+            }
+		}
+		
+        // Now build a confidence interval for the whole abundance group
+		if (maternal_FPKM() > 0.0)
+		{
+			double maternal_FPKM_hi = maternal_FPKM() + 2 * sqrt(maternal_FPKM_variance());
+			double maternal_FPKM_lo = max(0.0, maternal_FPKM() - 2 * sqrt(maternal_FPKM_variance()));
+			ConfidenceInterval maternal_conf(maternal_FPKM_lo, maternal_FPKM_hi);
+			maternal_FPKM_conf(maternal_conf);
+		}
+		else
+		{
+			_maternal_FPKM_variance = 0.0;
+			ConfidenceInterval maternal_conf(0.0, 0.0);
+			maternal_FPKM_conf(maternal_conf);
+		}
+	}
+	else
+	{
+		double sum_maternal_transfrag_FPKM_hi = 0;
+        double max_maternal_fpkm = 0.0;
+        //double min_fpkm = 1e100;
+		BOOST_FOREACH (boost::shared_ptr<Abundance> pA, _abundances)
+		{
+			double maternal_FPKM_hi;
+			double maternal_FPKM_lo;
+			if (pA->maternal_effective_length() > 0)
+			{
+                double norm_maternal_frag_density = 1000000000;
+                norm_maternal_frag_density /= pA->maternal_effective_length();
+                norm_maternal_frag_density *= (maternal_mass_fraction());
+                double maternal_fpkm_high = norm_maternal_frag_density;
+                
+                double maternal_var_fpkm = maternal_fpkm_high; 
+                
+				maternal_FPKM_hi = maternal_fpkm_high + 2 * sqrt(maternal_var_fpkm);
+				maternal_FPKM_lo = 0.0;
+				ConfidenceInterval maternal_conf(maternal_FPKM_lo, maternal_FPKM_hi);
+				assert (maternal_FPKM_lo <= pA->maternal_FPKM() && pA->maternal_FPKM() <= maternal_FPKM_hi);
+				pA->maternal_FPKM_conf(maternal_conf);
+                //pA->maternal_FPKM_variance(maternal_var_fpkm);
+				max_maternal_fpkm = max(sum_maternal_transfrag_FPKM_hi, maternal_FPKM_hi);
+			}
+			else
+			{
+				maternal_FPKM_hi = 0.0;
+				maternal_FPKM_lo = 0.0;
+				ConfidenceInterval maternal_conf(0.0, 0.0);
+				pA->maternal_FPKM_conf(maternal_conf);
+                //pA->maternal_FPKM_variance(0.0);
+			}
+            
+		}
+		// In the case of a numeric failure, the groups error bars need to be 
+		// set such that 
+		maternal_FPKM_conf(ConfidenceInterval(0.0, max_maternal_fpkm + 2 * sqrt(maternal_FPKM_variance())));
+	}
+}
+
+void compute_cond_probs_and_effective_lengths_allele(const vector<MateHit>& alignments,
+													 vector<boost::shared_ptr<Abundance> >& transcripts, vector<boost::shared_ptr<Abundance> >& mapped_transcripts)
+{		
+	//two vectors of cond' probabilities
+	//two total_cond_prob_calls
+	int N = transcripts.size();
+	int M = alignments.size();
+	
+	vector<vector<char> > paternal_compatibilities(N, vector<char>(M,0));
+	vector<vector<char> > maternal_compatibilities(N, vector<char>(M,0));
+	compute_compatibilities(transcripts, alignments, paternal_compatibilities, maternal_compatibilities);
+
+	for (int j = 0; j < N; ++j) 
+    {
+		boost::shared_ptr<Scaffold> transfrag = transcripts[j]->transfrag();
+		vector<double>& paternal_cond_probs = *(new vector<double>(M,0));
+		vector<double>& maternal_cond_probs = *(new vector<double>(M,0));
+		
+		BiasCorrectionHelper bch(transfrag);
+		
+		for(int i = 0 ; i < M; ++i)
+		{
+			if (paternal_compatibilities[j][i]==1)
+			{
+				total_paternal_cond_prob_calls++;
+				paternal_cond_probs[i] = bch.get_cond_prob(alignments[i]);
+			}
+			if (maternal_compatibilities[j][i]==1)
+			{
+				total_maternal_cond_prob_calls++;
+				maternal_cond_probs[i] = bch.get_cond_prob(alignments[i]);
+			}
+		}
+		double bch_eff_len = bch.get_effective_length();
+		if(transcripts[j]->paternal_effective_length() == transcripts[j]->maternal_effective_length()){
+			transcripts[j]->paternal_effective_length(bch_eff_len);
+			transcripts[j]->maternal_effective_length(bch_eff_len);
+		}
+		else{//update according to their proportions
+			if(transcripts[j]->paternal_effective_length() > transcripts[j]->maternal_effective_length()){
+				transcripts[j]->paternal_effective_length(bch_eff_len);
+				transcripts[j]->maternal_effective_length((transcripts[j]->maternal_effective_length()/transcripts[j]->paternal_effective_length())*bch_eff_len);
+			}
+			else{
+				transcripts[j]->paternal_effective_length((transcripts[j]->paternal_effective_length()/transcripts[j]->maternal_effective_length())*bch_eff_len);
+				transcripts[j]->maternal_effective_length(bch_eff_len);
+			}
+		}
+		
+		transcripts[j]->paternal_cond_probs(&paternal_cond_probs);
+		transcripts[j]->maternal_cond_probs(&maternal_cond_probs);
+		if (bch.is_mapped()) 
+			mapped_transcripts.push_back(transcripts[j]);
+	}
+}
+
+
+// FIXME: This function doesn't really need to copy the transcripts out of 
+// the cluster.  Needs refactoring
+bool AlleleAbundanceGroup::calculate_gammas(const vector<MateHit>& nr_alignments, 
+											const vector<double>& log_conv_factors,
+											const vector<boost::shared_ptr<Abundance> >& transcripts, 
+											const vector<boost::shared_ptr<Abundance> >& mapped_transcripts)
+{
+	if (mapped_transcripts.empty())
+    {
+		//gammas = vector<double>(transfrags.size(), 0.0);
+		BOOST_FOREACH  (boost::shared_ptr<Abundance> ab, _abundances)
+		{
+			ab->paternal_gamma(0);
+			ab->maternal_gamma(0);
+		}
+		_parental_gamma_covariance = ublas::zero_matrix<double>(2*transcripts.size(),2*transcripts.size());
+		_parental_count_covariance = ublas::zero_matrix<double>(2*transcripts.size(),2*transcripts.size());
+		_iterated_exp_parental_count_covariance = ublas::zero_matrix<double>(2*transcripts.size(),2*transcripts.size());
+		_parental_fpkm_covariance = ublas::zero_matrix<double>(2*transcripts.size(),2*transcripts.size());
+		return true;
+    }
+	
+	vector<double> paternal_gammas;
+	vector<double> maternal_gammas;
+	
+	verbose_msg( "Calculating intial MLE\n");
+	
+	AbundanceStatus mle_success = gamma_mle(mapped_transcripts,
+											nr_alignments,
+											log_conv_factors,
+											paternal_gammas,
+											maternal_gammas);
+	verbose_msg( "Tossing likely garbage isoforms\n");
+	
+	for (size_t i = 0; i < paternal_gammas.size(); ++i)
+	{
+		if (isnan(paternal_gammas[i]))
+		{
+			verbose_msg("Warning: paternal isoform abundance is NaN!\n");
+		}
+	}
+	for (size_t i = 0; i < maternal_gammas.size(); ++i)
+	{
+		if (isnan(maternal_gammas[i]))
+		{
+			verbose_msg("Warning: maternal isoform abundance is NaN!\n");
+		}
+	}
+    double locus_mass = 0.0;
+   
+    for (size_t i = 0; i < nr_alignments.size(); ++i)
+    {
+        const MateHit& alignment = nr_alignments[i];
+        locus_mass += alignment.collapse_mass();
+    }
+    
+	vector<boost::shared_ptr<Abundance> > filtered_transcripts = mapped_transcripts;
+	vector<double> paternal_filtered_gammas = paternal_gammas;
+	vector<double> maternal_filtered_gammas = maternal_gammas;
+
+	filter_junk_isoforms(filtered_transcripts, paternal_filtered_gammas, maternal_filtered_gammas, mapped_transcripts, locus_mass);
+	
+	if (filtered_transcripts.empty())
+	{
+		//gammas = vector<double>(transfrags.size(), 0.0);
+		BOOST_FOREACH  (boost::shared_ptr<Abundance> ab, _abundances)
+		{
+			ab->paternal_gamma(0);
+			ab->maternal_gamma(0);
+		}
+		_parental_gamma_covariance = ublas::zero_matrix<double>(2*transcripts.size(),2*transcripts.size());
+		_parental_count_covariance = ublas::zero_matrix<double>(2*transcripts.size(),2*transcripts.size());
+		_iterated_exp_parental_count_covariance = ublas::zero_matrix<double>(2*transcripts.size(),2*transcripts.size());
+		_parental_fpkm_covariance = ublas::zero_matrix<double>(2*transcripts.size(),2*transcripts.size());
+		return true;
+	}
+	
+    if (filtered_transcripts.size() != mapped_transcripts.size())
+    {    
+        paternal_filtered_gammas.clear();
+		maternal_filtered_gammas.clear();
+        
+        verbose_msg( "Revising MLE\n");
+        
+        mle_success = gamma_mle(filtered_transcripts,
+								nr_alignments,
+								log_conv_factors, 
+								paternal_filtered_gammas,
+								maternal_filtered_gammas);
+    }
+
+	for (size_t i = 0; i < paternal_filtered_gammas.size(); ++i)
+	{
+		if (isnan(paternal_filtered_gammas[i]))
+		{
+			verbose_msg("Warning: paternal isoform abundance is NaN!\n");
+		}
+	}
+	for (size_t i = 0; i < maternal_filtered_gammas.size(); ++i)
+	{
+		if (isnan(maternal_filtered_gammas[i]))
+		{
+			verbose_msg("Warning: maternal isoform abundance is NaN!\n");
+		}
+	}
+	size_t N = transcripts.size();
+	
+    set<boost::shared_ptr<ReadGroupProperties const> > rg_props;
+	for (size_t i = 0; i < nr_alignments.size(); ++i)
+	{
+        rg_props.insert(nr_alignments[i].read_group_props());
+	}
+    
+    AbundanceStatus map_success = NUMERIC_OK;
+	if (final_est_run) // Only on last estimation run.
+	{
+        ublas::vector<double> paternal_gamma_mle(paternal_filtered_gammas.size());
+        std::copy(paternal_filtered_gammas.begin(), paternal_filtered_gammas.end(), paternal_gamma_mle.begin());
+		ublas::vector<double> maternal_gamma_mle(maternal_filtered_gammas.size());
+        std::copy(maternal_filtered_gammas.begin(), maternal_filtered_gammas.end(), maternal_gamma_mle.begin());
+    }
+	//map_success will fail if either parental gammas isnan
+	for (size_t i = 0; i < paternal_filtered_gammas.size(); ++i)
+	{
+		if (isnan(paternal_gammas[i]))
+		{
+			verbose_msg( "Warning: paternal isoform abundance is NaN!\n");
+			map_success = NUMERIC_FAIL;
+		}
+	}
+	for (size_t i = 0; i < maternal_filtered_gammas.size(); ++i)
+	{
+		if (isnan(maternal_gammas[i]))
+		{
+			verbose_msg( "Warning: maternal isoform abundance is NaN!\n");
+			map_success = NUMERIC_FAIL;
+		}
+	}
+	
+	// Now we need to fill in zeros for the isoforms we filtered out of the 
+	// MLE/MAP calculation
+	vector<double> updated_paternal_gammas = vector<double>(N, 0.0);
+	vector<double> updated_maternal_gammas = vector<double>(N, 0.0);
+    
+    
+	ublas::matrix<double> updated_parental_gamma_cov;
+	updated_parental_gamma_cov = ublas::zero_matrix<double>(2*N, 2*N);
+	ublas::matrix<double> updated_parental_count_cov;
+    updated_parental_count_cov = ublas::zero_matrix<double>(2*N, 2*N);
+    ublas::matrix<double> updated_iterated_exp_parental_count_cov;
+    updated_iterated_exp_parental_count_cov = ublas::zero_matrix<double>(2*N, 2*N);
+	ublas::matrix<double> updated_parental_fpkm_cov;
+    updated_parental_fpkm_cov = ublas::zero_matrix<double>(2*N, 2*N);
+	
+	size_t cfs = 0;
+	boost::shared_ptr<Scaffold> curr_filtered_scaff = filtered_transcripts[cfs]->transfrag();
+	StructurallyEqualScaffolds se;
+	vector<size_t> scaff_present(N, N);
+	
+	for (size_t i = 0; i < N; ++i)
+	{
+		boost::shared_ptr<Scaffold> scaff_i = transcripts[i]->transfrag();
+		if (cfs < filtered_transcripts.size())
+		{
+			curr_filtered_scaff = filtered_transcripts[cfs]->transfrag();
+			if (se(scaff_i, curr_filtered_scaff))
+			{
+				scaff_present[i] = cfs;
+				cfs++;
+			}
+		}
+	}
+
+	for (size_t i = 0; i < N; ++i)
+	{
+		if (scaff_present[i] != N)
+		{
+			// then scaffolds[i] has a non-zero abundance, we need to fill
+			// that in along with relevant cells from the covariance matrix
+			updated_paternal_gammas[i] = paternal_filtered_gammas[scaff_present[i]];
+			updated_maternal_gammas[i] = maternal_filtered_gammas[scaff_present[i]];
+			//cerr << updated_gammas[i] << ",";
+            
+			for (size_t j = 0; j < N; ++j)
+			{
+				if (scaff_present[j] != N)
+				{
+					updated_parental_gamma_cov(i,j) = _parental_gamma_covariance(scaff_present[i],scaff_present[j]);
+					updated_iterated_exp_parental_count_cov(i,j) = _iterated_exp_parental_count_covariance(scaff_present[i],scaff_present[j]);
+					updated_parental_count_cov(i,j) = _parental_count_covariance(scaff_present[i],scaff_present[j]);
+					updated_parental_fpkm_cov(i,j) = _parental_fpkm_covariance(scaff_present[i],scaff_present[j]);
+					
+					assert (!isinf(updated_parental_gamma_cov(i,j)));
+					assert (!isnan(updated_parental_gamma_cov(i,j)));
+					
+					updated_parental_gamma_cov(i,j+N) = _parental_gamma_covariance(scaff_present[i],scaff_present[j]+N);
+					updated_iterated_exp_parental_count_cov(i,j+N) = _iterated_exp_parental_count_covariance(scaff_present[i],scaff_present[j]+N);
+					updated_parental_count_cov(i,j+N) = _parental_count_covariance(scaff_present[i],scaff_present[j]+N);
+					updated_parental_fpkm_cov(i,j+N) = _parental_fpkm_covariance(scaff_present[i],scaff_present[j]+N);
+					
+					assert (!isinf(updated_parental_gamma_cov(i,j+N)));
+					assert (!isnan(updated_parental_gamma_cov(i,j+N)));
+					
+					updated_parental_gamma_cov(i+N,j+N) = _parental_gamma_covariance(scaff_present[i]+N,scaff_present[j]+N);
+					updated_iterated_exp_parental_count_cov(i+N,j+N) = _iterated_exp_parental_count_covariance(scaff_present[i]+N,scaff_present[j]+N);
+					updated_parental_count_cov(i+N,j+N) = _parental_count_covariance(scaff_present[i]+N,scaff_present[j]+N);
+					updated_parental_fpkm_cov(i+N,j+N) = _parental_fpkm_covariance(scaff_present[i]+N,scaff_present[j]+N);
+					
+					assert (!isinf(updated_parental_gamma_cov(i+N,j+N)));
+					assert (!isnan(updated_parental_gamma_cov(i+N,j+N)));
+					
+					updated_parental_gamma_cov(i+N,j) = _parental_gamma_covariance(scaff_present[i]+N,scaff_present[j]);
+					updated_iterated_exp_parental_count_cov(i+N,j) = _iterated_exp_parental_count_covariance(scaff_present[i]+N,scaff_present[j]);
+					updated_parental_count_cov(i+N,j) = _parental_count_covariance(scaff_present[i]+N,scaff_present[j]);
+					updated_parental_fpkm_cov(i+N,j) = _parental_fpkm_covariance(scaff_present[i]+N,scaff_present[j]);
+					
+					assert (!isinf(updated_parental_gamma_cov(i+N,j)));
+					assert (!isnan(updated_parental_gamma_cov(i+N,j)));
+				}
+			}
+		}
+	}
+
+    //cerr << endl;
+	
+    AbundanceStatus numeric_status = NUMERIC_OK;
+    if (mle_success == NUMERIC_LOW_DATA)
+    {
+        numeric_status = NUMERIC_LOW_DATA;
+    }
+    else if (mle_success == NUMERIC_FAIL)
+    {
+		numeric_status = NUMERIC_FAIL;
+    }
+    else
+    {
+        assert (mle_success == NUMERIC_OK);
+        if (map_success == NUMERIC_FAIL)
+        {
+            numeric_status = NUMERIC_FAIL;
+        }
+        else if (map_success == NUMERIC_LOW_DATA)
+        {
+            numeric_status = NUMERIC_LOW_DATA;
+        }
+        // otherwise, we're cool.
+    }
+    
+        
+	// All scaffolds that go in get abundances, but those that get "filtered"
+	// from the calculation get zeros.
+	//gammas = updated_gammas;
+	for (size_t i = 0; i < _abundances.size(); ++i)
+	{
+		_abundances[i]->paternal_gamma(updated_paternal_gammas[i]);
+		_abundances[i]->paternal_status(numeric_status);
+		_abundances[i]->maternal_gamma(updated_maternal_gammas[i]);
+		_abundances[i]->maternal_status(numeric_status);
+	}
+	
+	_parental_gamma_covariance = updated_parental_gamma_cov;
+    _parental_count_covariance = updated_parental_count_cov;
+    _iterated_exp_parental_count_covariance = updated_iterated_exp_parental_count_cov;
+	_parental_fpkm_covariance = updated_parental_fpkm_cov;
+
+	return ((paternal_status() == NUMERIC_OK) && (maternal_status() == NUMERIC_OK));
+}
+
+void calculate_assignment_probs(const Eigen::VectorXd& alignment_multiplicities, 
+								const Eigen::MatrixXd& paternal_transcript_cond_probs,
+								const Eigen::MatrixXd& maternal_transcript_cond_probs,
+								const Eigen::VectorXd& proposed_paternal_gammas,
+								const Eigen::VectorXd& proposed_maternal_gammas,
+								Eigen::MatrixXd& paternal_assignment_probs,
+								Eigen::MatrixXd& maternal_assignment_probs)
+{
+//    vector<double> u(nr_alignments.size());
+//    for (size_t i = 0; i < alignment_multiplicity.size(); ++i)
+//    {
+//        u[i] = nr_alignments[i].collapse_mass();
+//    }
+    
+    //ublas::vector<double> total_paternal_cond_prob = ublas::prod(proposed_paternal_gammas,paternal_transcript_cond_probs);
+	//ublas::vector<double> total_maternal_cond_prob = ublas::prod(proposed_maternal_gammas,maternal_transcript_cond_probs);
+    Eigen::VectorXd total_cond_prob = (proposed_paternal_gammas.transpose() * paternal_transcript_cond_probs) + (proposed_maternal_gammas.transpose() * maternal_transcript_cond_probs);
+    
+    // Compute the marginal conditional probability for each fragment against each isoform in each allele!
+    //ublas::matrix<double>  paternal_marg_cond_prob = ublas::zero_matrix<double>(paternal_transcript_cond_probs.size1(), paternal_transcript_cond_probs.size2());
+	//ublas::matrix<double>  maternal_marg_cond_prob = ublas::zero_matrix<double>(maternal_transcript_cond_probs.size1(), maternal_transcript_cond_probs.size2());
+    Eigen::MatrixXd paternal_marg_cond_prob(paternal_transcript_cond_probs.rows(), paternal_transcript_cond_probs.cols());
+	Eigen::MatrixXd maternal_marg_cond_prob(maternal_transcript_cond_probs.rows(), maternal_transcript_cond_probs.cols());
+    
+    for (size_t i = 0; i < alignment_multiplicities.size(); ++i)
+    {
+        paternal_marg_cond_prob.array().col(i) = proposed_paternal_gammas.array() * paternal_transcript_cond_probs.array().col(i);
+		maternal_marg_cond_prob.array().col(i) = proposed_maternal_gammas.array() * maternal_transcript_cond_probs.array().col(i);
+        
+		//hope this is right
+        if (total_cond_prob(i) > 0)
+        {
+            paternal_marg_cond_prob.array().col(i) /= total_cond_prob(i);
+			//column(paternal_marg_cond_prob,i) /= total_cond_prob(i);
+			maternal_marg_cond_prob.array().col(i) /= total_cond_prob(i);
+			//column(maternal_marg_cond_prob,i) /= total_cond_prob(i);
+        }
+	}
+    
+    paternal_assignment_probs = paternal_marg_cond_prob;
+	maternal_assignment_probs = maternal_marg_cond_prob;
+}
+
+void AlleleAbundanceGroup::calculate_iterated_exp_count_covariance(const vector<MateHit>& nr_alignments, 
+																	  const vector<boost::shared_ptr<Abundance> >& transcripts)
+{
+	// Now calculate the _iterated_exp_count_covariance matrix via iterated expectation
+    vector<vector<double> > paternal_cond_probs(transcripts.size(), vector<double>());
+	vector<vector<double> > maternal_cond_probs(transcripts.size(), vector<double>());
+	for(size_t j = 0; j < transcripts.size(); ++j)
+    {
+        paternal_cond_probs[j]= *(transcripts[j]->paternal_cond_probs());
+		maternal_cond_probs[j]= *(transcripts[j]->maternal_cond_probs());
+    }
+    
+    vector<double> u(nr_alignments.size());
+    for (size_t i = 0; i < nr_alignments.size(); ++i)
+    {
+        u[i] = nr_alignments[i].collapse_mass();
+    }
+    
+    ublas::matrix<double> parental_count_covariance = ublas::zero_matrix<double>(2*transcripts.size(),2*transcripts.size());
+	
+    ublas::vector<double> total_cond_prob = ublas::zero_vector<double>(nr_alignments.size());
+    
+    for (size_t i = 0; i < nr_alignments.size(); ++i)
+    {
+        // the replicate gamma mles might not be available, if one of the
+        // replicates returned an error, we'll consider all to be unreliable
+        for (size_t j = 0; j < transcripts.size(); ++j)
+        {
+            if (paternal_cond_probs[j][i] > 0 || maternal_cond_probs[j][i] > 0)
+            {
+				total_cond_prob(i) += (transcripts[j]->paternal_gamma() * paternal_cond_probs[j][i]) + (transcripts[j]->maternal_gamma() * maternal_cond_probs[j][i]);
+				assert (!isnan(total_cond_prob(i) && ! isinf(total_cond_prob(i))));
+            }
+        }
+	}
+    
+    // Compute the marginal conditional probability for each fragment against each isoform from each allele!
+    ublas::matrix<double>  marg_paternal_cond_prob = ublas::zero_matrix<double>(transcripts.size(), nr_alignments.size());
+	ublas::matrix<double>  marg_maternal_cond_prob = ublas::zero_matrix<double>(transcripts.size(), nr_alignments.size());
+
+    for (size_t i = 0; i < nr_alignments.size(); ++i)
+    {
+        // the replicate gamma mles might not be available, if one of the
+        // replicates returned an error, we'll consider all to be unreliable
+        for (size_t j = 0; j < transcripts.size(); ++j)
+        {
+            if (total_cond_prob(i))
+            {
+                if (paternal_cond_probs[j][i] > 0) 
+                {
+                    marg_paternal_cond_prob(j,i) = (transcripts[j]->paternal_gamma() * paternal_cond_probs[j][i])/total_cond_prob(i);
+				}
+				if (maternal_cond_probs[j][i] > 0) 
+                {
+                    marg_maternal_cond_prob(j,i) = (transcripts[j]->maternal_gamma() * maternal_cond_probs[j][i])/total_cond_prob(i);
+				}
+            }
+        }
+	}
+    
+    double total_paternal_paternal_var = 0.0;
+	double total_maternal_maternal_var = 0.0;
+    
+    ublas::vector<double> paternal_expected_counts = ublas::zero_vector<double>(paternal_cond_probs.size());
+	ublas::vector<double> maternal_expected_counts = ublas::zero_vector<double>(maternal_cond_probs.size());
+
+	//iterate over fragments
+    for (size_t i = 0; i < nr_alignments.size(); ++i)
+    {
+		// iterate over transcripts
+        for (size_t j = 0; j < transcripts.size(); ++j)
+        {
+            double paternal_c_j_i = marg_paternal_cond_prob(j,i);
+			double maternal_c_j_i = marg_maternal_cond_prob(j,i);
+            
+            paternal_expected_counts(j) += u[i] * marg_paternal_cond_prob(j,i);
+			maternal_expected_counts(j) += u[i] * marg_maternal_cond_prob(j,i);
+            
+            //if (c_j_i == 0 || c_j_i == 1.0)
+            //    continue;
+            
+            for (size_t k = 0; k < transcripts.size(); ++k)
+            {
+                double paternal_c_k_i = marg_paternal_cond_prob(k,i);
+				double maternal_c_k_i = marg_maternal_cond_prob(k,i);
+                //if (c_k_i == 0 || c_k_i == 1.0)
+                //    continue;
+                
+                if (j == k)
+                {
+                    if (paternal_c_k_i != 0 && paternal_c_k_i != 1.0)
+                    {
+                        double paternal_paternal_var = u[i] * paternal_c_k_i * (1.0 - paternal_c_k_i);
+						parental_count_covariance(k,k) += paternal_paternal_var;
+						
+						assert (paternal_paternal_var >= 0);
+						assert (!isnan(paternal_paternal_var));
+                        total_paternal_paternal_var += paternal_paternal_var;
+					}
+					if (maternal_c_k_i != 0 && maternal_c_k_i != 1.0)
+                    {
+						double maternal_maternal_var = u[i] * maternal_c_k_i * (1.0 - maternal_c_k_i);
+						parental_count_covariance(k+transcripts.size(),k+transcripts.size()) += maternal_maternal_var;
+						
+						assert (maternal_maternal_var >= 0);
+						assert (!isnan(maternal_maternal_var));
+						total_maternal_maternal_var += maternal_maternal_var;
+					}
+				}
+                else
+                {
+                    if (paternal_c_k_i != 0 && paternal_c_k_i != 1.0 && paternal_c_j_i != 0 && paternal_c_j_i != 1.0)
+					{
+                        double paternal_paternal_covar = -u[i] * paternal_c_k_i * paternal_c_j_i;
+						assert (paternal_paternal_covar <= 0);
+						assert (!isnan(paternal_paternal_covar));
+						parental_count_covariance(k,j) += paternal_paternal_covar;
+					}
+					if (paternal_c_k_i != 0 && paternal_c_k_i != 1.0 && maternal_c_j_i != 0 && maternal_c_j_i != 1.0)
+					{
+                        double paternal_maternal_covar = -u[i] * paternal_c_k_i * maternal_c_j_i;
+						assert (paternal_maternal_covar <= 0);
+						assert (!isnan(paternal_maternal_covar));
+						parental_count_covariance(k,j+transcripts.size()) += paternal_maternal_covar;
+					}
+					if (maternal_c_k_i != 0 && maternal_c_k_i != 1.0 && maternal_c_j_i != 0 && maternal_c_j_i != 1.0)
+					{
+                        double maternal_maternal_covar = -u[i] * maternal_c_k_i * maternal_c_j_i;
+						assert (maternal_maternal_covar <= 0);
+						assert (!isnan(maternal_maternal_covar));
+						parental_count_covariance(k+transcripts.size(),j+transcripts.size()) += maternal_maternal_covar;
+					}
+					if (maternal_c_k_i != 0 && maternal_c_k_i != 1.0 && paternal_c_j_i != 0 && paternal_c_j_i != 1.0)
+					{
+                        double maternal_paternal_covar = -u[i] * paternal_c_k_i * maternal_c_j_i;
+						assert (maternal_paternal_covar <= 0);
+						assert (!isnan(maternal_paternal_covar));
+						parental_count_covariance(k+transcripts.size(),j) += maternal_paternal_covar;
+					}
+				} 
+            }
+        }
+    }
+	
+//    double total_counts = accumulate(expected_counts.begin(), expected_counts.end(), 0);
+//
+//    if (total_counts > 0)   
+//    {
+//        for (size_t i = 0; i < transcripts.size(); ++i)
+//        {
+//            _abundances[i]->gamma(expected_counts(i) / total_counts);  
+//        } 
+//    }
+    
+    _iterated_exp_parental_count_covariance = parental_count_covariance;
+
+    // take care of little rounding errors
+	for (size_t i = 0; i < _iterated_exp_parental_count_covariance.size1(); ++i)
+    {
+        for (size_t j = 0; j < _iterated_exp_parental_count_covariance.size2(); ++j)
+        {
+            if (i == j)
+            {
+                double c = _iterated_exp_parental_count_covariance(i,j);
+                if (c < 0)
+                    _iterated_exp_parental_count_covariance(i,j) = 0;
+                //assert(paternal_c >= 0);
+			}
+            else
+            {
+                double c = _iterated_exp_parental_count_covariance(i,j);
+                if (c > 0)
+                    _iterated_exp_parental_count_covariance(i,j) = 0;
+                //assert(paternal_c <= 0);
+			}
+        }
+		if(i < _iterated_exp_parental_count_covariance.size1()/2)
+		{
+			_abundances[i]->num_paternal_fragment_uncertainty_var(_iterated_exp_parental_count_covariance(i,i));
+		}
+		else
+		{
+			_abundances[i-_iterated_exp_parental_count_covariance.size1()/2]->num_maternal_fragment_uncertainty_var(_iterated_exp_parental_count_covariance(i,i));
+		}
+	}
+}
+
+
+void AlleleAbundanceGroup::calculate_kappas()
+{
+    size_t num_members = 2*_abundances.size();
+	_parental_kappa_covariance = ublas::matrix<double>(num_members, num_members);
+	//cerr << gamma_cov <<endl;
+	
+	assert (_parental_gamma_covariance.size1() == num_members);
+	assert (_parental_gamma_covariance.size2() == num_members);
+	//tss_group.sub_quants = vector<QuantGroup>(isos_in_tss);
+		
+	double paternal_S_FPKM = 0.0;
+	double maternal_S_FPKM = 0.0;
+	BOOST_FOREACH  (boost::shared_ptr<Abundance> pA, _abundances)
+	{
+		if (pA->paternal_effective_length() > 0 || pA->maternal_effective_length() > 0)
+		{
+			paternal_S_FPKM += pA->paternal_FPKM();
+			maternal_S_FPKM += pA->maternal_FPKM();
+		}
+	}
+	
+    //fprintf (stderr, "*********\n");
+	BOOST_FOREACH  (boost::shared_ptr<Abundance> pA, _abundances)
+	{
+		if (paternal_S_FPKM+maternal_S_FPKM > 0)
+		{
+			pA->paternal_kappa(pA->paternal_FPKM() / (paternal_S_FPKM+maternal_S_FPKM));
+			pA->maternal_kappa(pA->maternal_FPKM() / (paternal_S_FPKM+maternal_S_FPKM));
+        }
+		else
+		{
+			pA->paternal_kappa(0); 
+			pA->maternal_kappa(0);
+		}
+	}
+
+	for (size_t k = 0; k < num_members; ++k)
+	{
+		for (size_t m = 0; m < num_members; ++m)
+		{		
+			double L = 1.0;
+			if(k < num_members/2)
+			{
+				if(m < num_members/2)
+				{
+					L = _abundances[k]->paternal_effective_length() * _abundances[m]->paternal_effective_length();
+				}
+				else{
+					L = _abundances[k]->paternal_effective_length() * _abundances[m-(num_members/2)]->maternal_effective_length();
+				}
+			}
+			else{
+				if(m < num_members/2)
+				{
+					L = _abundances[k-(num_members/2)]->maternal_effective_length() * _abundances[m]->paternal_effective_length();
+				}
+				else{
+					L = _abundances[k-(num_members/2)]->maternal_effective_length() * _abundances[m-(num_members/2)]->maternal_effective_length();
+				}
+			}
+							
+			if (L == 0.0)
+            {
+				_parental_kappa_covariance(k,m) = 0.0;
+            }
+			else if (m == k)
+            {
+                // Use the modeled count variance here instead
+                double kappa_var;
+                if (paternal_S_FPKM+maternal_S_FPKM)
+                {
+                    kappa_var = _parental_fpkm_covariance(k,k) / ((paternal_S_FPKM+maternal_S_FPKM) * (paternal_S_FPKM+maternal_S_FPKM));
+                }
+                else
+                {
+                    kappa_var = 0.0;
+                }
+                
+                if (isnan(kappa_var) || isinf(kappa_var)) // to protect against underflow
+                    kappa_var = 0;
+                _parental_kappa_covariance(k,m) = kappa_var;
+            }
+            else
+            {
+                double kappa_covar;
+                if (paternal_S_FPKM+maternal_S_FPKM)
+                {
+                    kappa_covar = _parental_fpkm_covariance(k,m) / ((paternal_S_FPKM+maternal_S_FPKM) * (paternal_S_FPKM+maternal_S_FPKM));
+                }
+                else
+                {
+                    kappa_covar = 0.0;
+                }
+                _parental_kappa_covariance(k,m) = kappa_covar;
+            }
+		}
+	}
+	
+//	size_t num_members = 2*_abundances.size();
+//	_kappa_covariance = ublas::zero_matrix<double>(num_members,num_members);
+//	bool flag = 1;
+//    if (paternal_FPKM() == 0)
+//    {
+//        for (size_t k = 0; k < _abundances.size(); ++k)
+//        {
+//            _abundances[k]->paternal_kappa(0);
+//        }
+//        flag = 0;
+//    }
+//    if (maternal_FPKM() == 0)
+//    {
+//        for (size_t k = 0; k < _abundances.size(); ++k)
+//        {
+//            _abundances[k]->maternal_kappa(0);
+//        }
+//        flag = 0;
+//    }
+//	if(!flag) return;
+
+    size_t num_paternal_count_draws = _assigned_paternal_count_samples.size();
+	size_t num_maternal_count_draws = _assigned_maternal_count_samples.size();
+    vector<Eigen::VectorXd > relative_paternal_abundances (num_paternal_count_draws, Eigen::VectorXd::Zero(_abundances.size()));
+	vector<Eigen::VectorXd > relative_maternal_abundances (num_maternal_count_draws, Eigen::VectorXd::Zero(_abundances.size()));
+    
+    // We'll use the effective lengths to transform counts into relative abundances,
+    // and then use that to calculate the kappa variances and covariances.
+    Eigen::VectorXd paternal_effective_length_recip = Eigen::VectorXd::Zero(_abundances.size());
+	Eigen::VectorXd maternal_effective_length_recip = Eigen::VectorXd::Zero(_abundances.size());
+    for (size_t i = 0; i < _abundances.size(); ++i)
+    {
+        if (_abundances[i]->paternal_effective_length() > 0)
+            paternal_effective_length_recip(i) = 1.0 / _abundances[i]->paternal_effective_length();
+		if (_abundances[i]->maternal_effective_length() > 0)
+            maternal_effective_length_recip(i) = 1.0 / _abundances[i]->maternal_effective_length();
+    }
+
+    assert(num_paternal_count_draws == num_maternal_count_draws);
+	for (size_t i = 0; i < num_paternal_count_draws; ++i)
+    {
+		Eigen::VectorXd relative_paternal_abundance = paternal_effective_length_recip.array() * _assigned_paternal_count_samples[i].array();
+        double paternal_total = relative_paternal_abundance.sum();
+		Eigen::VectorXd relative_maternal_abundance = maternal_effective_length_recip.array() * _assigned_maternal_count_samples[i].array();
+        double maternal_total = relative_maternal_abundance.sum();
+        if (paternal_total+maternal_total > 0)
+		{
+			relative_paternal_abundance /= (paternal_total+maternal_total);
+			relative_maternal_abundance /= (paternal_total+maternal_total);
+		}
+		//cerr << relative_abundance.transpose() << endl;
+        relative_paternal_abundances[i] = relative_paternal_abundance;
+		relative_maternal_abundances[i] = relative_maternal_abundance;
+    }
+    
+//    
+//    Eigen::VectorXd expected_relative_abundances = Eigen::VectorXd::Zero(_abundances.size());
+//    
+//    for (size_t i = 0; i < relative_abundances.size(); ++i)
+//    {
+//        expected_relative_abundances += relative_abundances[i];
+//    }
+//    
+//    if (relative_abundances.size() > 0)
+//    {
+//        expected_relative_abundances /= relative_abundances.size();
+//    }
+//    
+//    for (size_t k = 0; k < num_members; ++k)
+//    {
+//        _abundances[k]->kappa(expected_relative_abundances(k));
+//    }
+    
+//    cerr << "======" << endl;
+//    cerr << "updated expected relative abundances: " << endl;
+//    std::cerr << expected_relative_abundances << std::endl;
+//    cerr << "======" << endl;
+//    
+//    cerr << "simulated kappa deviations: " << endl;
+//    for (unsigned i = 0; i < _count_covariance.size1 (); ++ i) 
+//    {
+//        ublas::matrix_row<ublas::matrix<double> > mr (_kappa_covariance, i);
+//        cerr << i << " : " << _abundances[i]->kappa() << " : ";
+//        std::cerr << i << " : " << mr << std::endl;
+//    }
+    
+//    for (size_t i = 0; i < _abundances.size(); ++i)
+//    {
+//        for (size_t j = 0; j < _abundances.size(); ++j)
+//        {
+//            for (size_t k = 0 ; k < relative_abundances.size(); ++k)
+//            {
+//                double r = (relative_abundances[k](i) - expected_relative_abundances(i)) * (relative_abundances[k](j) - expected_relative_abundances(j));
+//                assert (r <= 1.0 && r >= -1);
+//                _kappa_covariance(i,j) += r;
+//                //assert (_kappa_covariance(i,j) >= -1 * relative_abundances.size() && _kappa_covariance(i,j) <= relative_abundances.size());
+//            }
+//        }
+//    }
+    
+//    cerr << "simulated kappa deviations: " << endl;
+//    for (unsigned i = 0; i < _count_covariance.size1 (); ++ i) 
+//    {
+//        ublas::matrix_row<ublas::matrix<double> > mr (_kappa_covariance, i);
+//        cerr << i << " : " << _abundances[i]->kappa() << " : ";
+//        std::cerr << i << " : " << mr << std::endl;
+//    }
+
+    
+//    _kappa_covariance /= relative_abundances.size();
+    
+    vector<double> paternal_js_samples;
+    vector<double> maternal_js_samples;
+	
+    ublas::vector<double> paternal_kappa_mean(_abundances.size());
+	ublas::vector<double> maternal_kappa_mean(_abundances.size());
+    for (size_t j = 0; j < _abundances.size(); ++j)
+    {
+        paternal_kappa_mean(j) = _abundances[j]->paternal_kappa();
+		maternal_kappa_mean(j) = _abundances[j]->maternal_kappa();
+    }
+    
+	//creating separate paternal and maternal kappa_cov_matrices by taking the upper right and lower left _parental_kappa_covariance quadrents.
+	//as a result paternal_kappa_cov_chol and maternal_kappa_cov_chol and hence _null_paternal_js_samples and _null_maternal_js_samples will have size of #transcripts rather than size of 2*#transcripts
+	ublas::matrix<double> paternal_kappa_cov_chol = ublas::zero_matrix<double>(num_members/2,num_members/2);
+	ublas::matrix<double> maternal_kappa_cov_chol = ublas::zero_matrix<double>(num_members/2,num_members/2);
+	for (size_t i = 0; i < num_members/2;++i)
+	{
+		for (size_t j = 0; j < num_members/2;++j)
+		{
+			paternal_kappa_cov_chol(i,j) = _parental_kappa_covariance(i,j);	
+			maternal_kappa_cov_chol(i,j) = _parental_kappa_covariance(i+num_members/2,j+num_members/2);
+		}
+	}
+	
+    double paternal_ret = cholesky_factorize(paternal_kappa_cov_chol);
+    if (paternal_ret == 0)
+    {
+        multinormal_generator<double> generator(paternal_kappa_mean, paternal_kappa_cov_chol);
+        vector<Eigen::VectorXd> multinormal_paternal_samples;
+        
+        generate_importance_samples(generator, multinormal_paternal_samples, 10000, false);
+
+        // We used to sample the JS using the real assigned count samples, but
+        // that's not quite as accurate as simulating from a multinomial built from
+        // the bounded covariance matrices.
+        
+        //generate_null_js_samples(relative_abundances, 100000, js_samples);
+        generate_null_js_samples(multinormal_paternal_samples, 100000, paternal_js_samples);
+        
+        _null_paternal_js_samples = paternal_js_samples;
+        //if (_null_js_samples.size() > 0)
+        //    fprintf(stderr, "Max JS from null: %lg\n",_null_js_samples.back()); 
+    }
+    else
+    {
+        _null_paternal_js_samples.clear();
+    }
+	double maternal_ret = cholesky_factorize(maternal_kappa_cov_chol);
+    if (maternal_ret == 0)
+    {
+        multinormal_generator<double> generator(maternal_kappa_mean, maternal_kappa_cov_chol);
+        vector<Eigen::VectorXd> multinormal_maternal_samples;
+        
+        generate_importance_samples(generator, multinormal_maternal_samples, 10000, false);
+
+        // We used to sample the JS using the real assigned count samples, but
+        // that's not quite as accurate as simulating from a multinomial built from
+        // the bounded covariance matrices.
+        
+        //generate_null_js_samples(relative_abundances, 100000, js_samples);
+        generate_null_js_samples(multinormal_maternal_samples, 100000, maternal_js_samples);
+        
+        _null_maternal_js_samples = maternal_js_samples;
+        //if (_null_js_samples.size() > 0)
+        //    fprintf(stderr, "Max JS from null: %lg\n",_null_js_samples.back()); 
+    }
+    else
+    {
+        _null_maternal_js_samples.clear();
+    }
+}
+
+void Estep (int N, 
+			int M, 
+			const Eigen::VectorXd& paternal_p,
+			const Eigen::VectorXd& maternal_p,
+			Eigen::MatrixXd& paternal_U,
+			Eigen::MatrixXd& maternal_U,
+			const Eigen::MatrixXd& paternal_cond_probs,
+			const Eigen::MatrixXd& maternal_cond_probs,
+			const Eigen::VectorXd& alignment_multiplicities,
+			const bool first) {
+	// given p, fills U with expected frequencies
+	int i,j;	
+    
+//    Eigen::VectorXd frag_prob_sums = Eigen::VectorXd::Zero(M);
+//    
+//    for (j = 0; j < N; ++j) 
+//    {
+//        for (i = 0; i < M; ++i) 
+//        {
+//            frag_prob_sums(i) += cond_probs(j,i) * p(j);
+//        }
+//    }
+//    
+//    for (i = 0; i < M; ++i) 
+//    {
+//        frag_prob_sums(i) = frag_prob_sums(i) ? (1.0 / frag_prob_sums(i)) : 0.0;
+//    }
+//    
+//    for (j = 0; j < N; ++j) 
+//    {
+//        for (i = 0; i < M; ++i) 
+//        {
+//            double ProbY = frag_prob_sums(i);
+//            double exp_i_j = alignment_multiplicities(i) * cond_probs(j,i) * p(j) * ProbY;
+//            U(j,i) = exp_i_j;
+//        }
+//    }
+    
+    Eigen::VectorXd paternal_frag_prob_sums;// = Eigen::VectorXd::Zero(M);
+	Eigen::VectorXd maternal_frag_prob_sums;// = Eigen::VectorXd::Zero(M);
+	Eigen::VectorXd frag_prob_sums;// = Eigen::VectorXd::Zero(M);
+//    for (j = 0; j < N; ++j) 
+//    {
+//        for (i = 0; i < M; ++i) 
+//        {
+//            frag_prob_sums(i) += cond_probs(j,i) * p(j);
+//            assert (!isnan(cond_probs(j,i)) && !isinf(cond_probs(j,i)));
+//        }
+//    }
+    
+    paternal_frag_prob_sums = paternal_p.transpose() * paternal_cond_probs;//this is a vector of size M, where each element is the col sum over all paternal N isoforms
+	maternal_frag_prob_sums = maternal_p.transpose() * maternal_cond_probs;//this is a vector of size M, where each element is the col sum over all maternal N isoforms
+	if(first)
+	{
+		for(int i = 0; i < M; ++i){
+			if(paternal_cond_probs.col(i).sum() > 0 && maternal_cond_probs.col(i).sum() > 0)
+			{
+				paternal_frag_prob_sums[i] /= 2.0;
+				maternal_frag_prob_sums[i] /= 2.0;
+			}
+		}
+	}	
+	
+    frag_prob_sums = paternal_frag_prob_sums+maternal_frag_prob_sums;//this is a vector of size M, where each element is the combined cols sum over all paternal+maternal N isoforms
+    for (i = 0; i < M; ++i) 
+    {
+		assert (!isnan(frag_prob_sums(i)) && !isinf(frag_prob_sums(i)));
+        //double x = frag_prob_sums(i);
+		frag_prob_sums(i) = frag_prob_sums(i) ? (1.0 / frag_prob_sums(i)) : 0.0;
+        if (isnan(frag_prob_sums(i)) || isinf(frag_prob_sums(i)))
+        {
+            frag_prob_sums(i) = 0; // protect against overflow/underflow
+		}
+    }
+
+    Eigen::VectorXd x = frag_prob_sums.array() * alignment_multiplicities.array();
+	
+	
+//    Eigen::MatrixXd y = p.transpose() * cond_probs;
+//    Eigen::MatrixXd UU = y.array() * x.array();
+    
+//    cerr << UU <<endl;
+//    for (j = 0; j < N; ++j) 
+//    {
+//        for (i = 0; i < M; ++i) 
+//        {
+//            //double ProbY = frag_prob_sums(i);
+//            double exp_i_j = cond_probs(j,i) * p(j) * x(i);
+//            U(j,i) = exp_i_j;
+//        }
+//    }
+    
+    paternal_U = Eigen::MatrixXd(N,M);
+	maternal_U = Eigen::MatrixXd(N,M);
+
+	if(first){
+		for (i = 0; i < M; ++i) 
+		{
+			for (j = 0; j < N; ++j) 
+			{
+				if(paternal_cond_probs.col(i).sum() > 0 && maternal_cond_probs.col(i).sum() > 0)
+				{
+					paternal_U(j,i) = paternal_cond_probs(j,i) * (paternal_p[j]/2.0);
+					maternal_U(j,i) = maternal_cond_probs(j,i) * (maternal_p[j]/2.0);
+				}
+				else{
+					paternal_U(j,i) = paternal_cond_probs(j,i) * paternal_p[j];
+					maternal_U(j,i) = maternal_cond_probs(j,i) * maternal_p[j];
+				}
+			}
+		}
+	}
+	else{
+		for (i = 0; i < M; ++i) 
+		{
+			//double ProbY = frag_prob_sums(i);
+			//double exp_i_j = cond_probs(j,i) * p(j) * x(i);
+			//U.r = exp_i_j;
+			paternal_U.col(i) = paternal_cond_probs.col(i).array() * paternal_p.array();
+			maternal_U.col(i) = maternal_cond_probs.col(i).array() * maternal_p.array();
+		}
+	}
+	
+	for (j = 0; j < N; ++j) 
+    {
+        paternal_U.array().row(j) *= x.transpose().array();
+		maternal_U.array().row(j) *= x.transpose().array();
+    }
+
+		
+    //cerr << UU << endl;
+    //cerr << "==========" << endl;
+    //cerr << U << endl;
+    //cerr << "**********" << endl;
+    //Eigen::ArrayXXd a_cond_probs = cond_probs.array();
+    //Eigen::ArrayXXd a_p = p.array();
+    //Eigen::ArrayXXd a_U = a_p * a_cond_probs.colwise();
+    //U = (.colwise() * p.transpose().array()).matrix();
+    //U = cond_probs.colwise() * p.array();
+    //U = alignment_multiplicities.array() * p.array() * cond_probs.array() * frag_prob_sums.array();
+    //U = (frag_prob_sums.array() * alignment_multiplicities.array()).rowwise() * p.array().colwise() * cond_probs.array().colwise();
+}
+
+void Mstep (int N, 
+			int M, 
+			Eigen::VectorXd& paternal_p, 
+			Eigen::VectorXd& maternal_p,
+			const Eigen::MatrixXd& paternal_U,	
+			const Eigen::MatrixXd& maternal_U) 
+{
+	Eigen::VectorXd paternal_v;// = Eigen::VectorXd::Zero(N);
+	Eigen::VectorXd maternal_v;// = Eigen::VectorXd::Zero(N);
+    
+	double m = 0; //m is the number of reads (paternal+maternal)
+    
+	paternal_v = paternal_U.rowwise().sum();
+    maternal_v = maternal_U.rowwise().sum();
+    m = paternal_v.colwise().sum()(0)+maternal_v.colwise().sum()(0);
+	
+	if (m)
+	{
+		paternal_p = paternal_v / m;
+		maternal_p = maternal_v / m;
+	}
+	else
+	{
+        paternal_p = Eigen::VectorXd::Zero(N);
+		maternal_p = Eigen::VectorXd::Zero(N);
+	}
+}
+
+double logLike (int N, 
+				int M, 
+				Eigen::VectorXd& paternal_p,
+				Eigen::VectorXd& maternal_p,
+				const Eigen::MatrixXd& paternal_cond_prob,
+				const Eigen::MatrixXd& maternal_cond_prob,
+				const Eigen::VectorXd& alignment_multiplicities,
+				const vector<double>& log_conv_factors) {
+	//int i,j;
+	
+	double ell = accumulate(log_conv_factors.begin(), log_conv_factors.end(), 0.0);
+	//double Prob_Y;
+//	for (int i= 0; i < M; i++) {
+//		Prob_Y = 0;
+//		for (int j= 0; j < N; j++) {
+//			Prob_Y += cond_prob(j,i) * p(j);
+//		}
+//		if (Prob_Y > 0) {
+//			ell += (alignment_multiplicities(i) * log(Prob_Y));
+//		}
+//	}
+    Eigen::VectorXd Prob_Ys = paternal_p.transpose() * paternal_cond_prob + maternal_p.transpose() * maternal_cond_prob;
+    Eigen::VectorXd log_Prob_Ys = Prob_Ys.array().log();
+    //log_Prob_Ys *= alignment_multiplicities;
+    for (int i = 0; i < M; i++) {
+        if (Prob_Ys(i) > 0)
+        {
+            ell += alignment_multiplicities(i) * log_Prob_Ys(i);
+        }
+    }
+	return ell;
+}
+
+double EM(int N, int M, 
+		  Eigen::VectorXd&  newPaternalP,
+		  Eigen::VectorXd&  newMaternalP,
+		  const Eigen::MatrixXd& paternal_cond_prob, 
+		  const Eigen::MatrixXd& maternal_cond_prob, 
+		  const Eigen::VectorXd& alignment_multiplicities,
+		  vector<double> const & log_conv_factors,
+		  bool& converged) 
+{
+    converged = true;
+	//double sum = 0;
+	double newEll = 0;
+    //Eigen::VectorXd paternal_p = Eigen::VectorXd::Zero(N);
+	//Eigen::VectorXd maternal_p = Eigen::VectorXd::Zero(N);
+	Eigen::VectorXd paternal_p = Eigen::VectorXd::Zero(N,M);
+	Eigen::VectorXd maternal_p = Eigen::VectorXd::Zero(N,M);
+    Eigen::MatrixXd paternal_U = Eigen::MatrixXd::Zero(N,M);
+	Eigen::MatrixXd maternal_U = Eigen::MatrixXd::Zero(N,M);
+	double ell = 0; 
+	int iter = 0;
+	int j,i;
+    bool first = true;
+	
+    if (N == 0 || M == 0)
+        return NUMERIC_OK;
+    
+    for (j = 0; j < N; ++j) {
+        //p[j] = drand48();
+        //sum += p[j];
+		paternal_p(j) = 1.0/(double)N;
+		maternal_p(j) = 1.0/(double)N;
+    }
+	
+
+    static const double ACCURACY = mle_accuracy; // convergence for EM
+    
+	while (((iter <= 2) || (abs(ell - newEll) > ACCURACY)) && (iter < max_mle_iterations)) {
+		if (iter > 0) {
+			//round(newP);
+			paternal_p = newPaternalP;
+			maternal_p = newMaternalP;
+			ell = newEll;
+		}
+		
+		Estep(N, M, paternal_p, maternal_p, paternal_U, maternal_U, paternal_cond_prob, maternal_cond_prob, alignment_multiplicities, first); //  fills parental U's
+		first = false;
+		Mstep(N, M, newPaternalP, newMaternalP, paternal_U, maternal_U); // fills parental p's
+		newEll = logLike(N, M, newPaternalP, newMaternalP, paternal_cond_prob, maternal_cond_prob, alignment_multiplicities, log_conv_factors);
+		//nimrod
+		//fprintf(stderr, "%d\t%lf\n", iter, newEll);
+		
+		//printf("%.3f %.3f %.3f ", newP[0], newP[1], newP[2]);
+		//printf("%.3f %.3f %.3f ", newP[3], newP[4], newP[5]);
+		//printf("%.3f %.3f %.3f\n", newP[6], newP[7], newP[8]);
+		iter++;
+	}
+		
+	if (iter >= max_mle_iterations)
+    {
+		verbose_msg("Warning: ITERMAX reached in abundance estimation, estimation hasn't fully converged\n");
+        converged = false;
+    }
+	verbose_msg("Convergence reached in %d iterations \n", iter);
+	return newEll;
+}
+
+AbundanceStatus empirical_mean_replicate_gamma_mle(vector<boost::shared_ptr<Abundance> >& transcripts,
+												   const vector<MateHit>& nr_alignments,
+												   const vector<double>& log_conv_factors,
+												   ublas::vector<double>& paternal_gamma_map_estimate,
+												   ublas::vector<double>& maternal_gamma_map_estimate,
+												   ublas::matrix<double>& parental_gamma_covariance,
+												   std::map<boost::shared_ptr<ReadGroupProperties const >, vector<ublas::vector<double> > >& parental_mles_for_read_groups,
+												   std::map<boost::shared_ptr<ReadGroupProperties const >, double >& count_per_replicate,
+												   std::map<boost::shared_ptr<ReadGroupProperties const >, AbundanceStatus >& status_per_replicate)
+{
+	size_t N = transcripts.size();	
+	size_t M = nr_alignments.size();
+
+//    set<boost::shared_ptr<ReadGroupProperties const> > rg_props;
+    std::vector<ublas::vector<double> > paternal_mle_gammas;
+	std::vector<ublas::vector<double> > maternal_mle_gammas;
+//	for (std::map<boost::shared_ptr<ReadGroupProperties const >, double >::const_iterator itr =_count_by_replicate.begin(); ++itr != _count_by_replicate.begin(); ++itr)
+//	{
+//        rg_props.insert(itr->first);
+//	}
+    
+    vector<double> rep_hit_counts;
+    
+    for(std::map<boost::shared_ptr<ReadGroupProperties const >, vector<ublas::vector<double> > >::iterator itr = parental_mles_for_read_groups.begin();
+        itr != parental_mles_for_read_groups.end(); 
+        ++itr)
+    {
+        vector<MateHit> rep_hits;
+        vector<double> rep_log_conv_factors;
+        //rep_hit_counts.push_back(0);
+        for (size_t i = 0; i < M; ++i)
+        {
+            //rep_hits.push_back(nr_alignments[i]);
+            //rep_log_conv_factors.push_back(log_conv_factors[i]);
+
+            if (nr_alignments[i].read_group_props() == itr->first)
+            {
+                //rep_hits.back().collapse_mass(0);
+                rep_hits.push_back(nr_alignments[i]);
+                rep_log_conv_factors.push_back(log_conv_factors[i]);
+                //rep_log_conv_factors[rep_log_conv_factors.size() - 1] = 0;
+            }
+            
+            //rep_hit_counts[rep_hit_counts.size() - 1] += rep_hits.back().collapse_mass();
+        }
+        
+        rep_hit_counts.push_back(count_per_replicate.find(itr->first)->second);
+        
+        //fprintf(stderr,"Replicate # %lu has %lu fragments \n", mle_gammas.size(), rep_hits.size());
+        vector<double> rep_paternal_gammas(0.0, transcripts.size());
+		vector<double> rep_maternal_gammas(0.0, transcripts.size());
+        vector<boost::shared_ptr<Abundance> > mapped_transcripts; // This collects the transcripts that have alignments mapping to them
+		        
+        compute_cond_probs_and_effective_lengths_allele(rep_hits, transcripts, mapped_transcripts);
+        
+        AbundanceStatus mle_success = gamma_mle(transcripts,
+												rep_hits,
+												rep_log_conv_factors, 
+												rep_paternal_gammas,
+												rep_maternal_gammas,
+												false);
+        //if (mle_success == NUMERIC_OK)
+        
+        ublas::vector<double> paternal_mle = ublas::zero_vector<double>(N);
+		ublas::vector<double> maternal_mle = ublas::zero_vector<double>(N);
+        for(size_t i = 0; i < N; ++i)
+        {
+            paternal_mle(i) = rep_paternal_gammas[i];
+			maternal_mle(i) = rep_maternal_gammas[i];
+        }
+        //cerr << mle << endl;
+        paternal_mle_gammas.push_back(paternal_mle);
+		maternal_mle_gammas.push_back(maternal_mle);
+		vector<ublas::vector<double> > parental_mles;
+		parental_mles.push_back(paternal_mle);
+		parental_mles.push_back(maternal_mle);
+        itr->second = parental_mles;
+        status_per_replicate[itr->first] = mle_success;
+        
+//        else
+//        {
+//            // if one replicate fails, let's just not trust any of them
+//            //mles_for_read_groups.clear();
+//            return mle_success;
+//        }
+    }
+
+//    cerr << "***" << endl;
+    parental_gamma_covariance = ublas::zero_matrix<double>(2*N,2*N);
+	ublas::vector<double> expected_paternal_mle_gamma = ublas::zero_vector<double>(N);
+	ublas::vector<double> expected_maternal_mle_gamma = ublas::zero_vector<double>(N);
+//
+    BOOST_FOREACH (ublas::vector<double>& paternal_mle, paternal_mle_gammas)
+    {
+        expected_paternal_mle_gamma += paternal_mle;
+    }
+    expected_paternal_mle_gamma /= paternal_mle_gammas.size();
+
+	BOOST_FOREACH (ublas::vector<double>& maternal_mle, maternal_mle_gammas)
+    {
+        expected_maternal_mle_gamma += maternal_mle;
+    }
+    expected_maternal_mle_gamma /= maternal_mle_gammas.size();
+//    
+//    ublas::vector<double> expected_counts = ublas::zero_vector<double>(N);
+//    
+//    for (size_t i = 0; i < mle_gammas.size(); ++i)
+//    {
+//        ublas::vector<double>& mle = mle_gammas[i];
+//        expected_counts += mle * rep_hit_counts[i];
+//    }
+//    expected_counts /= mle_gammas.size();
+//    
+	assert(paternal_mle_gammas.size() == maternal_mle_gammas.size());
+	for (size_t i = 0; i < N; ++i)
+    {
+        for (size_t j = 0; j < N; ++j)
+        {
+            for (size_t k = 0 ; k < parental_mles_for_read_groups.size(); ++k)
+            {
+                double cpp = (paternal_mle_gammas[k](i) - expected_paternal_mle_gamma(i)) * (paternal_mle_gammas[k](j) - expected_paternal_mle_gamma(j));
+                parental_gamma_covariance(i,j) += cpp;
+				double cpm = (paternal_mle_gammas[k](i) - expected_maternal_mle_gamma(i)) * (paternal_mle_gammas[k](j) - expected_maternal_mle_gamma(j));
+                parental_gamma_covariance(i,j+N) += cpm;
+				double cmm = (maternal_mle_gammas[k](i) - expected_maternal_mle_gamma(i)) * (maternal_mle_gammas[k](j) - expected_maternal_mle_gamma(j));
+                parental_gamma_covariance(i+N,j+N) += cmm;
+				double cmp = (maternal_mle_gammas[k](i) - expected_paternal_mle_gamma(i)) * (maternal_mle_gammas[k](j) - expected_paternal_mle_gamma(j));
+                parental_gamma_covariance(i+N,j) += cmp;
+            }
+		}
+    }
+    
+    parental_gamma_covariance /= (paternal_mle_gammas.size()+maternal_mle_gammas.size());
+
+//    
+//    ublas::matrix<double> count_covariance = ublas::zero_matrix<double>(N,N);
+//    for (size_t k = 0 ; k < mle_gammas.size(); ++k)
+//    {
+//        ublas::vector<double>& mle = mle_gammas[k];
+//        ublas::vector<double> counts = mle * rep_hit_counts[k];
+//        
+//        for (size_t i = 0; i < N; ++i)
+//        {
+//            for (size_t j = 0; j < N; ++j)
+//            {
+//                double c = (counts(i) - expected_counts(i)) * (counts(j) - expected_counts(j));
+//                count_covariance(i,j) += c;
+//            }
+//        }
+//    }
+//    
+//    count_covariance /= mle_gammas.size();
+    
+//    cerr << "count mean: " << endl;
+//    cerr << expected_counts << endl;
+//    cerr << "count covariance: " << endl;
+//    for (unsigned i = 0; i < count_covariance.size1 (); ++ i) 
+//    {
+//        ublas::matrix_row<ublas::matrix<double> > mr (count_covariance, i);
+//        std::cerr << i << " : " << mr << std::endl;
+//    }
+//    cerr << "======" << endl;
+    
+    paternal_gamma_map_estimate = expected_paternal_mle_gamma;
+	maternal_gamma_map_estimate = expected_maternal_mle_gamma;
+    
+//    cerr << "MLE: " << expected_mle_gamma << endl;
+//    cerr << "COV:" << endl;
+//    cerr << gamma_covariance << endl;
+    //cerr << "*************" << endl;
+    return NUMERIC_OK;
+}
+
+AbundanceStatus gamma_mle(const vector<boost::shared_ptr<Abundance> >& transcripts,
+								 const vector<MateHit>& nr_alignments,
+								 const vector<double>& log_conv_factors,
+								 vector<double>& paternal_gammas,
+								 vector<double>& maternal_gammas,
+								 bool check_identifiability)
+{
+	//paternal_gammas.clear();
+	//maternal_gammas.clear();
+	paternal_gammas = vector<double>(transcripts.size(), 0);
+	maternal_gammas = vector<double>(transcripts.size(), 0);
+	if (transcripts.empty())
+		return NUMERIC_OK;
+	
+	//long double bundle_mass_fraction = bundle_mass / (long double) map_mass;
+	//nimrod:comment this part
+	/*
+	if (transcripts.size() == 1)
+	{
+		paternal_gammas = vector<double>(1,0.5);
+		maternal_gammas = vector<double>(1,0.5);
+		return NUMERIC_OK;
+	}
+	*/
+	size_t M = nr_alignments.size();
+	size_t N = transcripts.size();
+
+    bool converged = true;
+    bool identifiable = true;
+    
+	if (M > 0)
+	{
+		
+		//vector<vector<double> > saliencies (M,vector<double>(N,0));
+		
+		
+		//compute_saliencies(cond_probs, saliencies, saliency_weight);
+		
+        Eigen::VectorXd paternal_prob = Eigen::VectorXd::Zero(N);
+		Eigen::VectorXd maternal_prob = Eigen::VectorXd::Zero(N);
+        Eigen::VectorXd _phint = Eigen::VectorXd::Zero(N); //???
+        
+		double logL;
+		
+        Eigen::MatrixXd paternal_cond_probs(N, M);
+		Eigen::MatrixXd maternal_cond_probs(N, M);
+		
+        for (size_t j = 0; j < paternal_cond_probs.rows(); ++j) //transcripts
+        {
+            for (size_t i = 0; i < paternal_cond_probs.cols(); ++i) //alignments
+            {
+                paternal_cond_probs(j,i) = (*(transcripts[j]->paternal_cond_probs()))[i];
+            }
+        }
+		for (size_t j = 0; j < maternal_cond_probs.rows(); ++j) //transcripts
+        {
+            for (size_t i = 0; i < maternal_cond_probs.cols(); ++i) //alignments
+            {
+                maternal_cond_probs(j,i) = (*(transcripts[j]->maternal_cond_probs()))[i];
+            }
+        }
+ 			
+        if (check_identifiability)
+        {
+            ublas::matrix<double> compat = ublas::zero_matrix<double>(M,N);
+			
+            for (size_t j = 0; j < N; ++j) //transcripts
+            {
+                for (size_t i = 0; i < M; ++i) //alignments
+                {
+                    if (paternal_cond_probs(j,i) || maternal_cond_probs(j,i))
+                    {
+                        //compat(i,j) = cond_probs[j][i];
+                        compat(i,j) = 1;
+                    }
+                }
+            }
+            
+            vector<size_t> transcripts_with_frags;
+            for (size_t j = 0; j < N; ++j)
+            {
+                bool has_fragment = false;
+                for (size_t i = 0; i < M; ++i)
+                {
+                    if (compat(i,j))
+                    {
+                        has_fragment = true;
+                        break;
+                    }
+                }
+				if (has_fragment)
+					transcripts_with_frags.push_back(j);
+			}
+            ublas::matrix<double> reduced_compat = ublas::zero_matrix<double>(M,transcripts_with_frags.size());
+            for (size_t j = 0; j < transcripts_with_frags.size(); ++j)
+            {
+                column(reduced_compat, j) = column(compat, transcripts_with_frags[j]);
+            }
+            
+            
+            typedef ublas::permutation_matrix<std::size_t> pmatrix;
+            
+            // create a permutation matrix for the LU-factorization
+            pmatrix pm(reduced_compat.size1());
+            
+            // cerr << compat.size2() <<endl;
+            // perform LU-factorization
+            identifiable = is_identifiable<ublas::matrix<double>,pmatrix>(reduced_compat,pm);
+        }
+        
+        Eigen::VectorXd alignment_multiplicities(M);
+		for (size_t i = 0; i < M; ++i) //alignments
+		{
+			alignment_multiplicities[i] = nr_alignments[i].collapse_mass();
+		}
+
+        logL = EM(N, M, paternal_prob, maternal_prob, paternal_cond_probs, maternal_cond_probs, alignment_multiplicities, log_conv_factors, converged); //prob is size N, cond_prob is MxN
+		
+		paternal_gammas = vector<double>(N, 0.0);
+		maternal_gammas = vector<double>(N, 0.0);
+		
+		for (size_t i = 0; i < paternal_gammas.size(); ++i)
+		{
+			paternal_gammas[i] = paternal_prob(i);
+			if (isnan(paternal_gammas[i]) || isinf(paternal_gammas[i]))
+            {
+				return NUMERIC_FAIL;
+            }
+		}
+		for (size_t i = 0; i < maternal_prob.size(); ++i)
+		{
+            maternal_gammas[i] = maternal_prob(i);
+			if (isnan(maternal_gammas[i]) || isinf(maternal_gammas[i]))
+            {
+                return NUMERIC_FAIL;
+            }
+		}
+	}
+	else
+	{
+		paternal_gammas = vector<double>(N, 0.0);
+		maternal_gammas = vector<double>(N, 0.0);
+	}
+    
+    double paternal_round_err = 0.0;
+  	double maternal_round_err = 0.0;
+    double num_good = 0;
+    for(size_t g = 0;g < N;++g)
+	{
+		if(paternal_gammas[g]+maternal_gammas[g] < min_isoform_fraction)
+		{
+			paternal_round_err += paternal_gammas[g];
+			maternal_round_err += maternal_gammas[g];
+			paternal_gammas[g] = 0.0;
+			maternal_gammas[g] = 0.0;
+		}
+		else
+		{
+			num_good += 1;
+        }
+	}
+    for(size_t g = 0;g < N;++g)
+	{
+		if(paternal_gammas[g]+maternal_gammas[g] != 0)
+		{
+			paternal_gammas[g] += (paternal_round_err/num_good);
+			maternal_gammas[g] += (maternal_round_err/num_good);
+		}
+	}
+        if (converged && identifiable)
+        return NUMERIC_OK;
+    else
+    {
+        if (!identifiable)
+            //return NUMERIC_LOW_DATA;
+            return NUMERIC_OK;
+        else
+			return NUMERIC_FAIL;
+	}
+    
+    return NUMERIC_OK;
+}
+
+double compute_doc_allele(int bundle_origin, 
+				   const vector<Scaffold>& scaffolds,
+				   vector<float>& depth_of_coverage,
+				   map<pair<int, int>, float>& intron_depth_of_coverage,
+				   bool exclude_intra_intron,
+				   vector<float>* intronic_cov,
+				   vector<int>* scaff_intronic_status)
+{
+  vector<int> i_status;
+  if (scaff_intronic_status==NULL)
+    scaff_intronic_status=&i_status;
+  *scaff_intronic_status = vector<int>(scaffolds.size(), 0);
+  vector<float> intronic;
+  if (intronic_cov==NULL)
+    intronic_cov=&intronic;
+  *intronic_cov = vector<float>(depth_of_coverage.size(), 0);
+  //vector<bool> intronic(depth_of_coverage.size(), false);
+	depth_of_coverage = vector<float>(depth_of_coverage.size(), 0);
+		
+	set<const MateHit*> hits_in_gene_set;
+	for (size_t i = 0; i < scaffolds.size(); ++i)
+	{
+		hits_in_gene_set.insert(scaffolds[i].mate_hits().begin(),
+								scaffolds[i].mate_hits().end());
+	}
+	
+	vector<Scaffold> hits;
+	
+	for(set<const MateHit*>::iterator itr = hits_in_gene_set.begin();
+		itr != hits_in_gene_set.end();
+		++itr)
+	{
+		hits.push_back(Scaffold(**itr));
+		double paternal_mass,maternal_mass;
+		(**itr).parental_masses(paternal_mass,maternal_mass);
+		hits.back().paternal_fpkm(paternal_mass);
+		hits.back().maternal_fpkm(maternal_mass);
+		hits.back().fpkm((**itr).mass());
+	}
+	
+	/*
+	//no need for this here, we do it below with depth_of_coverage
+	for (size_t i = 0; i < hits.size(); ++i)
+	{
+		const vector<AugmentedCuffOp>& aug_ops = hits[i].augmented_ops();
+		for (size_t j = 0; j < aug_ops.size(); ++j)
+		{
+			const AugmentedCuffOp& op = aug_ops[j];
+			if (op.opcode == CUFF_INTRON)
+			{
+				for (int K = op.g_left(); K < op.g_right(); ++K)
+				{
+					intronic[K - bundle_origin] = true; 
+				}
+			}
+		}
+	}
+	*/
+	
+	for (size_t i = 0; i < hits.size(); ++i)
+	{
+		const vector<AugmentedCuffOp>& aug_ops = hits[i].augmented_ops();
+		for (size_t j = 0; j < aug_ops.size(); ++j)
+		{
+			const AugmentedCuffOp& op = aug_ops[j];
+			if (op.opcode == CUFF_MATCH)
+			{
+				for (int K = op.g_left(); K < op.g_right(); ++K)
+				{
+					depth_of_coverage[K - bundle_origin] += (hits[i].paternal_fpkm()+hits[i].maternal_fpkm());
+				}
+			}
+			else if (op.opcode == CUFF_INTRON)
+			{
+        for (int K = op.g_left(); K < op.g_right(); ++K)
+        {
+			(*intronic_cov)[K - bundle_origin] += (hits[i].paternal_fpkm()+hits[i].maternal_fpkm());
+          //intronic[K - bundle_origin] = true;
+        }
+
+				pair<map<pair<int,int>,float>::iterator, bool> is = intron_depth_of_coverage.insert(make_pair(make_pair(op.g_left(), op.g_right()), 0));
+				is.first->second += (hits[i].paternal_fpkm()+hits[i].maternal_fpkm());
+			}
+		}
+	}
+	
+	vector<float> knockout(depth_of_coverage);
+	
+	double total_doc = 0;
+	int total_len = 0;
+	float min_intra_intron_fraction = min(pre_mrna_fraction, min_isoform_fraction);
+	//for (size_t i = 0; i < hits.size(); ++i)
+	for (size_t i = 0; i < scaffolds.size(); ++i)
+	{
+		//const vector<AugmentedCuffOp>& aug_ops = hits[i].augmented_ops();
+	  const vector<AugmentedCuffOp>& aug_ops = scaffolds[i].augmented_ops();
+		for (size_t j = 0; j < aug_ops.size(); ++j)
+		{
+			const AugmentedCuffOp& op = aug_ops[j];
+			if (op.opcode == CUFF_MATCH)
+			{
+				for (int K = op.g_left(); K < op.g_right(); ++K)
+				{
+					//if (!exclude_intra_intron || !intronic[K - bundle_origin])
+				  if (!exclude_intra_intron ||
+				       not_intronic(K-bundle_origin, depth_of_coverage, *intronic_cov, min_intra_intron_fraction,
+				           (*scaff_intronic_status)[i]) )
+					{
+						total_doc += knockout[K - bundle_origin];
+						total_len += (knockout[K - bundle_origin] != 0);
+						knockout[K - bundle_origin] = 0;
+					}
+				}
+			}
+		}
+	}
+	
+	return total_doc/(double)total_len;
+}
 

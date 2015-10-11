@@ -204,10 +204,17 @@ inline void BiasLearner::getSlice(const char* seq, char* slice, int start, int e
 	}
 }
 
-void BiasLearner::preProcessTranscript(const Scaffold& transcript)
+void BiasLearner::preProcessTranscript(const Scaffold& transcript, const bool allele)
 {
-	if (transcript.strand()==CUFF_STRAND_UNKNOWN || transcript.fpkm() < 1 || transcript.seq()=="")
-		return;
+	if(!allele)
+	{
+		if (transcript.strand()==CUFF_STRAND_UNKNOWN || transcript.fpkm() < 1 || transcript.seq()=="")
+			return;
+	}
+	else{
+		if (transcript.strand()==CUFF_STRAND_UNKNOWN || (transcript.paternal_fpkm()+transcript.maternal_fpkm()) < 1 || transcript.seq()=="")
+			return;
+	}
 		
 	vector<double> startHist(transcript.length()+1, 0.0); // +1 catches overhangs
 	vector<double> endHist(transcript.length()+1, 0.0);
@@ -228,13 +235,18 @@ void BiasLearner::preProcessTranscript(const Scaffold& transcript)
 		startHist[start] += mass;
 		endHist[end] += mass;
 	}
-	processTranscript(startHist, endHist, transcript);
+	processTranscript(startHist, endHist, transcript, allele);
 }
 
-
-void BiasLearner::processTranscript(const std::vector<double>& startHist, const std::vector<double>& endHist, const Scaffold& transcript)
+void BiasLearner::processTranscript(const std::vector<double>& startHist, const std::vector<double>& endHist, const Scaffold& transcript, const bool allele)
 {
-	double fpkm = transcript.fpkm();
+	double fpkm;
+	if(!allele){
+		fpkm = transcript.fpkm();
+	}
+	else{
+		fpkm = transcript.paternal_fpkm()+transcript.maternal_fpkm();
+	}
 	int seqLen = transcript.length();
 	
 	char seq[seqLen];

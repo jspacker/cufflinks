@@ -207,7 +207,10 @@ public:
 		_is_ref(false),
 		_strand(CUFF_STRAND_UNKNOWN), 
 		_classcode(0),
-        _fpkm(0.0) {}
+        _fpkm(0.0),
+		_paternal_fpkm(0.0),//nimrod
+		_maternal_fpkm(0.0)
+		{}
 	
 	Scaffold(const MateHit& mate) :
 		_ref_id(mate.ref_id()),
@@ -295,6 +298,11 @@ public:
         {
             double avg_fpkm = mate.mass();
             fpkm(avg_fpkm);
+			//nimrod
+			double avg_paternal_mass,avg_maternal_mass;
+			mate.parental_masses(avg_paternal_mass,avg_maternal_mass);
+			paternal_fpkm(avg_paternal_mass);
+			maternal_fpkm(avg_maternal_mass);
         }
 	}
 	
@@ -314,12 +322,20 @@ public:
         if (library_type == "transfrags")
         {
             double avg_fpkm = 0.0;
+            //nimrod
+            double avg_paternal_fpkm = 0.0;
+            double avg_maternal_fpkm = 0.0;
             BOOST_FOREACH (const Scaffold& sc, hits)
             {
                 avg_fpkm += sc.fpkm();
+				//nimrod
+				avg_paternal_fpkm += sc.paternal_fpkm();
+				avg_maternal_fpkm += sc.maternal_fpkm();
             }
             avg_fpkm /= hits.size();
-            fpkm(avg_fpkm);
+            //nimrod
+			avg_paternal_fpkm /= hits.size();
+			avg_maternal_fpkm /= hits.size();
         }
 	}
 	
@@ -377,6 +393,12 @@ public:
     double num_fragments() const {return _num_fragments; }
 	void num_fragments(double nf) { _num_fragments = nf; }
  
+	//nimrod
+	double paternal_fpkm() const {return _paternal_fpkm; }
+	double maternal_fpkm() const {return _maternal_fpkm; }
+	void paternal_fpkm(double fpkm) { _paternal_fpkm = fpkm; }
+	void maternal_fpkm(double fpkm) { _maternal_fpkm = fpkm; }
+	
 	const string& seq() const { return _seq; } 
 	void seq(const string& s) {	_seq = s; } 
 	
@@ -648,8 +670,8 @@ private:
 							const vector<pair<int, int> >& inners);
 	
 	static bool compatible_contigs(const Scaffold& lhs, 
-											const Scaffold& rhs,
-											int overhang_tolerance = bowtie_overhang_tolerance);
+								   const Scaffold& rhs,
+								   int overhang_tolerance = bowtie_overhang_tolerance);
 	
 	
 	typedef vector<AugmentedCuffOp> OpList;
@@ -684,6 +706,9 @@ private:
 	string _seq;
 	double _fpkm;
 	double _num_fragments;
+	//nimrod
+	double _paternal_fpkm;
+	double _maternal_fpkm;
 };
 
 bool scaff_lt(const Scaffold& lhs, const Scaffold& rhs);

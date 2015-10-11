@@ -39,6 +39,7 @@ bool mate_graphs(const HitBundle& bundle, BundleStats* stats);
 bool make_scaffolds(int bundle_left,
 					int bundle_length,
 					vector<Scaffold>& hits,
-					vector<Scaffold>& scaffolds);
+					vector<Scaffold>& scaffolds,
+					const bool allele = false);
 
 #endif

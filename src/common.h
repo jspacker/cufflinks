@@ -90,6 +90,8 @@ extern bool cond_prob_collapse;
 extern bool use_compat_mass;
 extern bool use_total_mass;
 extern bool model_mle_error;
+extern bool allele_specific_abundance_estimation;
+extern int min_allele_reads;
 
 // Ref-guided assembly options
 extern int overhang_3;
@@ -120,6 +122,7 @@ extern bool split_variance;
 
 extern int max_frags_per_bundle;
 //extern bool analytic_diff;
+extern bool allele_specific_differential;
 extern bool no_differential;
 extern double num_frag_count_draws;
 extern double num_frag_assignments;
@@ -282,6 +285,12 @@ enum OutputFormat
     SIMPLE_TABLE_OUTPUT_FMT
 };
 
+//Nimrod
+enum Phase
+{
+	PHASED,
+    UNPHASED
+};
 
 class EmpDist
 {
@@ -539,6 +548,10 @@ public:
     Platform platform() const { return _platform; }
     void platform(Platform p)  { _platform = p; }   
     
+    //Nimrod
+	Phase phase() const { return _phase; }
+	void phase(Phase p) { _phase = p ; }
+			 
     long double total_map_mass() const { return _total_map_mass; }
     void total_map_mass(long double p)  { _total_map_mass = p; }  
     
@@ -707,7 +720,8 @@ private:
     StandardMateOrientation _std_mate_orient;
 	MateStrandMapping _mate_strand_mapping;
     Platform _platform;
-    long double _total_map_mass;
+	Phase _phase; //Nimrod
+	long double _total_map_mass;
     long double _norm_map_mass;
     boost::shared_ptr<EmpDist const> _frag_len_dist;
 	boost::shared_ptr<BiasLearner const> _bias_learner;
@@ -851,4 +865,6 @@ std::string cat_strings(const T& container, const char* delimiter=",")
 #define OPT_NORM_STANDARDS_FILE     318
 #define OPT_USE_SAMPLE_SHEET        319
 #define OPT_OUTPUT_FORMAT           320
+#define OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION 321
+#define OPT_ALLELE_SPECIFIC_DIFFERENTIAL 322
 #endif

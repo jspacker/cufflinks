@@ -35,7 +35,9 @@ using namespace std;
  */
 
 enum CuffStrand { CUFF_STRAND_UNKNOWN = 0, CUFF_FWD = 1, CUFF_REV = 2, CUFF_BOTH = 3 };
-
+//Nimrod
+enum AlleleInfo { ALLELE_PATERNAL = 0, ALLELE_MATERNAL = 1, ALLELE_UNINFORMATIVE_PATERNAL_REF = 2, ALLELE_UNINFORMATIVE_MATERNAL_REF = 3, ALLELE_UNKNOWN = 4 };
+	
 
 enum CigarOpCode 
 { 
@@ -88,7 +90,8 @@ struct ReadHit
 			unsigned int edit_dist,
 			int num_hits,
             float base_mass,
-            uint32_t sam_flag) :
+            uint32_t sam_flag,
+		    AlleleInfo allele_info) :
 		_ref_id(ref_id),
 		_insert_id(insert_id), 
 		_left(left), 
@@ -99,7 +102,8 @@ struct ReadHit
         _base_mass(base_mass),
         _edit_dist(edit_dist),
 		_num_hits(num_hits),
-        _sam_flag(sam_flag)
+        _sam_flag(sam_flag),
+		_allele_info(allele_info)
 	{
 		assert(_cigar.capacity() == _cigar.size());
 		_right = get_right();
@@ -116,7 +120,8 @@ struct ReadHit
 			unsigned int  edit_dist,
 			int num_hits,
             float base_mass,
-            uint32_t sam_flag) : 
+            uint32_t sam_flag,
+		    AlleleInfo allele_info) : 
 		_ref_id(ref_id),
 		_insert_id(insert_id), 	
 		_left(left),
@@ -127,7 +132,8 @@ struct ReadHit
         _base_mass(base_mass),
         _edit_dist(edit_dist),
 		_num_hits(num_hits),
-        _sam_flag(sam_flag)
+        _sam_flag(sam_flag),
+		_allele_info(allele_info)
 	{
 		assert(_cigar.capacity() == _cigar.size());
 		_right = get_right();
@@ -148,7 +154,8 @@ struct ReadHit
         _edit_dist = other._edit_dist;
         _right = get_right();
         _sam_flag = other._sam_flag;
-        num_deleted++;
+		_allele_info = other._allele_info;
+		num_deleted++;
     }
     
     ~ReadHit()
@@ -202,8 +209,10 @@ struct ReadHit
 	            _left == rhs._left && 
 	            _source_strand == rhs._source_strand &&
 	            /* DO NOT USE ACCEPTED IN COMPARISON */
-	            _cigar == rhs._cigar);
+	            _cigar == rhs._cigar &&
+			    _allele_info == rhs._allele_info);
     }
+	
 	
 	RefID ref_id() const				{ return _ref_id;			}
 	InsertID insert_id() const			{ return _insert_id;		}
@@ -226,6 +235,43 @@ struct ReadHit
 		if (is_singleton())
 			return 1.0/_num_hits;
 		return 0.5 / _num_hits;
+	}
+	
+	void parental_masses(double& paternal_mass, double& maternal_mass) const 
+	{
+		if (is_singleton())
+		{
+			if(allele_info() == ALLELE_PATERNAL)
+			{
+				paternal_mass = 1.0/_num_hits;
+				maternal_mass = 0.0;
+			}
+			else if(allele_info() == ALLELE_MATERNAL)
+			{
+				paternal_mass = 0.0;
+				maternal_mass = 1.0/_num_hits;
+			}
+			else{
+				paternal_mass = 0.5/_num_hits;
+				maternal_mass = 0.5/_num_hits;
+			}
+		}
+		else{
+			if(allele_info() == ALLELE_PATERNAL)
+			{
+				paternal_mass = 0.5/_num_hits;
+				maternal_mass = 0.0;
+			}
+			else if(allele_info() == ALLELE_MATERNAL)
+			{
+				paternal_mass = 0.0;
+				maternal_mass = 0.5/_num_hits;
+			}
+			else{
+				paternal_mass = 0.25/_num_hits;
+				maternal_mass = 0.25/_num_hits;
+			}
+		}
 	}
 	
 	// For convenience, if you just want a copy of the gap intervals
@@ -277,6 +323,7 @@ struct ReadHit
     
 	//const string& hitfile_rec() const { return _hitfile_rec; }
 	//void hitfile_rec(const string& rec) { _hitfile_rec = rec; }
+	AlleleInfo allele_info()	const	{ return _allele_info; }
 	
 private:
 	
@@ -316,11 +363,12 @@ private:
 	vector<CigarOp> _cigar;
 	
 	CuffStrand _source_strand;    // Which strand the read really came from, if known
-    float _base_mass;
+	float _base_mass;
     unsigned int  _edit_dist;            // Number of mismatches
 	int _num_hits; // Number of multi-hits (1 by default)
     uint32_t _sam_flag;
 	//string _hitfile_rec; // Points to the buffer for the record from which this hit came
+	AlleleInfo _allele_info; //Nimrod: which allele the read really came from, if known
 };
 
 class ReadTable
@@ -584,7 +632,8 @@ public:
 					   unsigned int  edit_dist,
 					   int num_hits,
                        float base_mass,
-                       uint32_t sam_flag);
+                       uint32_t sam_flag,
+					   AlleleInfo allele_info = ALLELE_UNKNOWN);
 	
 	ReadHit create_hit(const string& insert_name, 
 					   const string& ref_name,
@@ -596,7 +645,8 @@ public:
 					   unsigned int  edit_dist,
 					   int num_hits,
                        float base_mass,
-                       uint32_t sam_flag);
+                       uint32_t sam_flag,
+					   AlleleInfo allele_info = ALLELE_UNKNOWN);
 	
 	virtual void reset() = 0;
 	
@@ -1073,6 +1123,21 @@ public:
 		return (_left_alignment->contains_splice());
 	}
 	
+	AlleleInfo allele() const
+	{
+		AlleleInfo left_allele,right_allele;
+		if (_left_alignment)
+		{
+			left_allele = _left_alignment->allele_info();
+		}
+		if (_right_alignment)
+		{
+			right_allele = _right_alignment->allele_info();
+		}
+		assert (left_allele == right_allele);
+		return(left_allele);
+	}
+	
 	InsertID insert_id() const
 	{
 		if (_left_alignment) return _left_alignment->insert_id();
@@ -1121,7 +1186,7 @@ public:
     // We are ignoring the mass reported by the ReadHits and re-calculating based on multi-hits
 	double mass() const
 	{
-        double base_mass = 1.0;
+		double base_mass = 1.0;
 
         if (is_multi())
 		{
@@ -1132,6 +1197,24 @@ public:
 				return base_mass/num_hits();
 		}
 		return base_mass;
+	}
+	
+	void parental_masses(double& paternal_mass, double& maternal_mass) const
+	{
+        paternal_mass = 0.5;
+		maternal_mass = 0.5;
+		
+        if (is_multi())
+		{
+			shared_ptr<MultiReadTable> mrt = _rg_props->multi_read_table();
+			if (mrt)
+				mrt->get_mass(*this, paternal_mass, maternal_mass);
+			else
+			{
+				paternal_mass /= num_hits();
+				maternal_mass /= num_hits();
+			}
+		}
 	}
     
 	double internal_scale_mass() const
@@ -1170,17 +1253,22 @@ private:
 bool mate_hit_lt(const MateHit& lhs, const MateHit& rhs);
 
 bool hits_eq_mod_id(const ReadHit& lhs, const ReadHit& rhs);
+bool hits_eq_mod_id_allele(const ReadHit& lhs, const ReadHit& rhs);
 
 bool hits_eq_non_multi(const MateHit& lhs, const MateHit& rhs);
+bool hits_eq_non_multi_allele(const MateHit& lhs, const MateHit& rhs);
+
 bool hits_eq_non_multi_non_replicate(const MateHit& lhs, const MateHit& rhs);
+bool hits_eq_non_multi_non_replicate_allele(const MateHit& lhs, const MateHit& rhs);
 
 bool hits_equals(const MateHit& lhs, const MateHit& rhs);
+bool hits_equals_allele(const MateHit& lhs, const MateHit& rhs);
 
 bool has_no_collapse_mass(const MateHit& hit);
 
 // Assumes hits are sorted by mate_hit_lt
 void collapse_hits(const vector<MateHit>& hits,
-				   vector<MateHit>& non_redundant);
+				   vector<MateHit>& non_redundant, const bool allele=false);
 
 void normalize_counts(std::vector<boost::shared_ptr<ReadGroupProperties> > & all_read_groups);
 

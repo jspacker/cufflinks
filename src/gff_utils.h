@@ -272,6 +272,7 @@ public:
         if (end==d.end) return strand<d.strand;
                      else return end<d.end;
         } else return (start<d.start);
+		return false;
      }
     */
     const char* getGeneName() {
