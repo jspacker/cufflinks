@@ -870,13 +870,13 @@ void print_allele_FPKM_tracking(FILE* fout,
 		const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;
 		
         AbundanceStatus paternal_status = NUMERIC_OK;
-		AbundanceStatus maternal_status = NUMERIC_OK;
-        foreach (const FPKMContext& paternal_c, paternal_fpkms)
+        AbundanceStatus maternal_status = NUMERIC_OK;
+        BOOST_FOREACH (const FPKMContext& paternal_c, paternal_fpkms)
         {
             if (paternal_c.status == NUMERIC_FAIL)
                 paternal_status = NUMERIC_FAIL;
         }
-		foreach (const FPKMContext& maternal_c, maternal_fpkms)
+        BOOST_FOREACH (const FPKMContext& maternal_c, maternal_fpkms)
         {
             if (maternal_c.status == NUMERIC_FAIL)
                 maternal_status = NUMERIC_FAIL;
@@ -1069,13 +1069,13 @@ void print_allele_count_tracking(FILE* fout,
 		const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;
 		
         AbundanceStatus paternal_status = NUMERIC_OK;
-        foreach (const FPKMContext& paternal_c, paternal_fpkms)
+        BOOST_FOREACH (const FPKMContext& paternal_c, paternal_fpkms)
         {
             if (paternal_c.status == NUMERIC_FAIL)
                 paternal_status = NUMERIC_FAIL;
         }
 		AbundanceStatus maternal_status = NUMERIC_OK;
-        foreach (const FPKMContext& maternal_c, maternal_fpkms)
+        BOOST_FOREACH (const FPKMContext& maternal_c, maternal_fpkms)
         {
             if (maternal_c.status == NUMERIC_FAIL)
                 maternal_status = NUMERIC_FAIL;
@@ -1217,60 +1217,45 @@ void print_read_group_tracking(FILE* fout,
 void print_allele_read_group_tracking(FILE* fout, 
                                const FPKMTrackingTable& tracking)
 {
-	fprintf(fout,"tracking_id\tcondition\treplicate\tpaternal_raw_frags\tpaternal_internal_scaled_frags\tpaternal_external_scaled_frags\tpaternal_FPKM\tpaternal_effective_length\tpaternal_status\tmaternal_raw_frags\tmaternal_internal_scaled_frags\tmaternal_external_scaled_frags\tmaternal_FPKM\tmaternal_effective_length\tmaternal_status");
+    fprintf(fout,"tracking_id\tcondition\treplicate\tpaternal_raw_frags\tpaternal_internal_scaled_frags\tpaternal_external_scaled_frags\tpaternal_FPKM\tpaternal_effective_length\tpaternal_status\tmaternal_raw_frags\tmaternal_internal_scaled_frags\tmaternal_external_scaled_frags\tmaternal_FPKM\tmaternal_effective_length\tmaternal_status");
 	
-	fprintf(fout, "\n");
-	for (FPKMTrackingTable::const_iterator itr = tracking.begin(); itr != tracking.end(); ++itr)
-	{
-		const string& description = itr->first;
-		const FPKMTracking& track = itr->second;
-		const vector<FPKMContext>& paternal_fpkms = track.paternal_fpkm_series;
-		const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;
-		assert(paternal_fpkms.size() == maternal_fpkms.size());
+    fprintf(fout, "\n");
+    for (FPKMTrackingTable::const_iterator itr = tracking.begin(); itr != tracking.end(); ++itr)
+    {
+        const string& description = itr->first;
+        const FPKMTracking& track = itr->second;
+        const vector<FPKMContext>& paternal_fpkms = track.paternal_fpkm_series;
+        const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;
+        assert(paternal_fpkms.size() == maternal_fpkms.size());
 		
-		for (size_t i = 0; i < paternal_fpkms.size(); ++i)
-		{
-			CountPerReplicateTable::const_iterator paternal_itr;
-			CountPerReplicateTable::const_iterator maternal_itr;
-			
-            for (paternal_itr = paternal_fpkms[i].count_per_rep.begin(), maternal_itr = maternal_fpkms[i].count_per_rep.begin(); 
-                 ((paternal_itr != paternal_fpkms[i].count_per_rep.end()) || (maternal_itr != maternal_fpkms[i].count_per_rep.end())); 
-                 ++paternal_itr, ++maternal_itr)
-            { 
-                FPKMPerReplicateTable::const_iterator paternal_f_itr = paternal_fpkms[i].fpkm_per_rep.find(paternal_itr->first);
-                StatusPerReplicateTable::const_iterator paternal_s_itr = paternal_fpkms[i].status_per_rep.find(paternal_itr->first);
-				
-                if (paternal_f_itr == paternal_fpkms[i].fpkm_per_rep.end())
-                {
-                    fprintf(stderr, "Error: missing per-replicate paternal FPKM data\n");
-                }
-                
-				FPKMPerReplicateTable::const_iterator maternal_f_itr = maternal_fpkms[i].fpkm_per_rep.find(maternal_itr->first);
-				StatusPerReplicateTable::const_iterator maternal_s_itr = maternal_fpkms[i].status_per_rep.find(maternal_itr->first);
-                
-				if (maternal_f_itr == maternal_fpkms[i].fpkm_per_rep.end())
-                {
-                    fprintf(stderr, "Error: missing per-replicate maternal FPKM data\n");
-                }
-				
-                double paternal_FPKM = paternal_f_itr->second;
-				double maternal_FPKM = maternal_f_itr->second;
-                double paternal_internal_count = paternal_itr->second;
-				double maternal_internal_count = maternal_itr->second;
-                double paternal_external_count = paternal_internal_count / paternal_itr->first->external_scale_factor();
-				double maternal_external_count = maternal_internal_count / maternal_itr->first->external_scale_factor();
-                double paternal_raw_count = paternal_internal_count * paternal_itr->first->internal_scale_factor();
-				double maternal_raw_count = maternal_internal_count * maternal_itr->first->internal_scale_factor();
-                const string& paternal_condition_name = paternal_itr->first->condition_name();
-				const string& maternal_condition_name = maternal_itr->first->condition_name();
-				assert(paternal_condition_name == maternal_condition_name);
-				AbundanceStatus paternal_status = paternal_s_itr->second;
-				AbundanceStatus maternal_status = maternal_s_itr->second;
-				int paternal_rep_num = paternal_itr->first->replicate_num();
-				int maternal_rep_num = maternal_itr->first->replicate_num();
+	for (size_t i = 0; i < paternal_fpkms.size(); ++i)
+	{
+            assert(paternal_fpkms[i].tracking_info_per_rep.size() == maternal_fpkms[i].tracking_info_per_rep.size());
+            for (size_t j = 0; j < paternal_fpkms[i].tracking_info_per_rep.size(); ++j)
+            {
+                const TrackingInfoPerRep& pat_info = paternal_fpkms[i].tracking_info_per_rep[j];
+                const TrackingInfoPerRep& mat_info = maternal_fpkms[i].tracking_info_per_rep[j];
+
+                double paternal_FPKM = pat_info.fpkm;
+                double maternal_FPKM = mat_info.fpkm;
+                double paternal_internal_count = pat_info.count;
+                double maternal_internal_count = mat_info.count;
+                double paternal_external_count = pat_info.count / pat_info.rg_props->external_scale_factor();
+                double maternal_external_count = mat_info.count / mat_info.rg_props->external_scale_factor();
+                double paternal_raw_count = pat_info.count * pat_info.rg_props->internal_scale_factor();
+                double maternal_raw_count = mat_info.count * mat_info.rg_props->internal_scale_factor();
+                const string& paternal_condition_name = pat_info.rg_props->condition_name();
+                const string& maternal_condition_name = mat_info.rg_props->condition_name();
+
+                int paternal_rep_num = pat_info.rg_props->replicate_num();
+                int maternal_rep_num = mat_info.rg_props->replicate_num();
                 assert(paternal_rep_num == maternal_rep_num);
+
+                AbundanceStatus paternal_status = pat_info.status;
+                AbundanceStatus maternal_status = mat_info.status;
+
                 const char* paternal_status_str = "OK";
-				const char* maternal_status_str = "OK";
+                const char* maternal_status_str = "OK";
                 
                 if (paternal_status == NUMERIC_OK)
                 {
@@ -1293,7 +1278,7 @@ void print_allele_read_group_tracking(FILE* fout,
                     assert(false);
                 }
 				
-				if (maternal_status == NUMERIC_OK)
+                if (maternal_status == NUMERIC_OK)
                 {
                     maternal_status_str = "OK";
                 }
@@ -1543,12 +1528,12 @@ bool quantitate_next_locus(const RefSequenceTable& rt,
 }
 
 bool quantitate_next_locus(const RefSequenceTable& rt,
-                           vector<shared_ptr<ReplicatedBundleFactory> >& bundle_factories,
-                           shared_ptr<AlleleTestLauncher> alleleLauncher)
+                           vector<boost::shared_ptr<ReplicatedBundleFactory> >& bundle_factories,
+                           boost::shared_ptr<AlleleTestLauncher> alleleLauncher)
 {
     for (size_t i = 0; i < bundle_factories.size(); ++i)
     {
-        shared_ptr<SampleAlleleAbundances> s_ab = shared_ptr<SampleAlleleAbundances>(new SampleAlleleAbundances);
+        boost::shared_ptr<SampleAlleleAbundances> s_ab = boost::shared_ptr<SampleAlleleAbundances>(new SampleAlleleAbundances);
         
 #if ENABLE_THREADS					
         while(1)
@@ -1567,20 +1552,48 @@ bool quantitate_next_locus(const RefSequenceTable& rt,
         
         locus_curr_threads++;
         locus_thread_pool_lock.unlock();
-        
-        thread quantitate(allele_sample_worker,
-                          boost::ref(rt),
-                          boost::ref(*(bundle_factories[i])),
-                          s_ab,
-                          i,
-                          alleleLauncher);  
-		
+
+        boost::shared_ptr<HitBundle> pBundle = boost::shared_ptr<HitBundle>(new HitBundle());
+        bool non_empty = bundle_factories[i]->next_bundle(*pBundle, true);
+ 
+        if (pBundle->compatible_mass() > 0)
+        {
+            thread quantitate(allele_sample_worker,
+                              non_empty,
+                              pBundle,
+                              boost::ref(rt),
+                              boost::ref(*(bundle_factories[i])),
+                              s_ab,
+                              i,
+                              alleleLauncher,
+                              true);  
+	}
+        else
+        {
+            allele_sample_worker(non_empty,
+                                 pBundle,
+                                 boost::ref(rt),
+                                 boost::ref(*(bundle_factories[i])),
+                                 s_ab,
+                                 i,
+                                 alleleLauncher,
+                                 true);
+            locus_thread_pool_lock.lock();
+            locus_curr_threads--;
+            locus_thread_pool_lock.unlock();
+        }	
 #else
-        allele_sample_worker(boost::ref(rt),
-                      boost::ref(*(bundle_factories[i])),
-                      s_ab,
-                      i,
-                      alleleLauncher);
+        HitBundle bundle;
+        bool non_empty = sample_factory.next_bundle(bundle);
+        
+        allele_sample_worker(non_emtpy,
+                             pBundle,
+                             boost::ref(rt),
+                             boost::ref(*(bundle_factories[i])),
+                             s_ab,
+                             i,
+                             alleleLauncher,
+                             true);
 #endif
     }
     return true;
@@ -2381,7 +2394,7 @@ void driver(FILE* ref_gtf, FILE* mask_gtf, FILE* contrast_file, FILE* norm_stand
     
 	if(!allele_specific_differential)
 	{
-		test_launcher = boost::shared_ptr<TestLauncher>(new TestLauncher(bundle_factories.size(), NULL, &tracking, samples_are_time_series, &p_bar));
+		test_launcher = boost::shared_ptr<TestLauncher>(new TestLauncher(bundle_factories.size(), contrasts, NULL, &tracking, &p_bar, true));
 	}
 	else
 	{
@@ -2636,7 +2649,7 @@ void driver(FILE* ref_gtf, FILE* mask_gtf, FILE* contrast_file, FILE* norm_stand
 		p_bar = ProgressBar("Testing for allele differential expression and regulation in locus.", num_bundles);
 		
 	if(!allele_specific_differential)
-		test_launcher = boost::shared_ptr<TestLauncher>(new TestLauncher(bundle_factories.size(), &tests, &tracking, samples_are_time_series, &p_bar));
+		test_launcher = boost::shared_ptr<TestLauncher>(new TestLauncher(bundle_factories.size(), contrasts, &tests, &tracking, &p_bar));
 	else
 		allele_test_launcher = boost::shared_ptr<AlleleTestLauncher>(new AlleleTestLauncher(bundle_factories.size(), &alleleTests, &tracking, samples_are_time_series, &p_bar));
 

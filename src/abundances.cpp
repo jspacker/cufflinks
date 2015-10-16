@@ -4879,6 +4879,102 @@ void sample_abundance_worker(const string& locus_tag,
     }
 }
 
+void sample_abundance_worker(const string& locus_tag,
+                             const set<boost::shared_ptr<ReadGroupProperties const> >& rg_props,
+                             SampleAlleleAbundances& sample,
+                             boost::shared_ptr<HitBundle> sample_bundle,
+                             bool perform_cds_analysis,
+                             bool perform_tss_analysis,
+                             bool calculate_variance)
+{
+    vector<boost::shared_ptr<Abundance> > abundances;
+    
+    BOOST_FOREACH(boost::shared_ptr<Scaffold> s, sample_bundle->ref_scaffolds())
+    {
+        AlleleTranscriptAbundance* pT = new AlleleTranscriptAbundance;
+        pT->transfrag(s);
+        pT->set_allele_informative();
+        boost::shared_ptr<Abundance> ab(pT);
+        ab->description(s->annotated_trans_id());
+        ab->locus_tag(locus_tag);
+        abundances.push_back(ab);
+    }
+    
+    sample.transcripts = AlleleAbundanceGroup(abundances);
+    
+    sample.transcripts.init_rg_props(rg_props);
+    
+    vector<MateHit> hits_in_cluster;
+    
+    if (sample_bundle->hits().size() < (size_t)max_frags_per_bundle)
+    {
+        get_alignments_from_scaffolds(sample.transcripts.abundances(),
+                                      hits_in_cluster);
+        
+        // Compute the individual transcript FPKMs via each sample's
+        // AbundanceGroup for this locus.
+        
+        sample.transcripts.calculate_abundance(hits_in_cluster, true, calculate_variance);
+    }
+    else
+    {
+        BOOST_FOREACH(boost::shared_ptr<Abundance>  ab, abundances)
+        {
+            ab->paternal_status(NUMERIC_HI_DATA);
+            ab->maternal_status(NUMERIC_HI_DATA);
+            
+            CountPerReplicateTable paternal_cpr, maternal_cpr;
+            FPKMPerReplicateTable paternal_fpr, maternal_fpr;
+            StatusPerReplicateTable paternal_spr, maternal_spr;
+            for (set<boost::shared_ptr<ReadGroupProperties const> >::const_iterator itr = rg_props.begin();
+                 itr != rg_props.end();
+                 ++itr)
+            {
+                paternal_cpr[*itr] = 0;
+                maternal_cpr[*itr] = 0;
+                paternal_fpr[*itr] = 0;
+                maternal_fpr[*itr] = 0;
+                paternal_spr[*itr] = NUMERIC_HI_DATA;
+                maternal_spr[*itr] = NUMERIC_HI_DATA;
+            }
+            ab->num_paternal_fragments_by_replicate(paternal_cpr);
+            ab->num_maternal_fragments_by_replicate(maternal_cpr);
+            ab->paternal_FPKM_by_replicate(paternal_fpr);
+            ab->maternal_FPKM_by_replicate(maternal_fpr);
+            ab->paternal_status_by_replicate(paternal_spr);
+            ab->maternal_status_by_replicate(maternal_spr);
+        }
+    }
+    
+    // Cluster transcripts by gene_id
+    vector<AlleleAbundanceGroup> transcripts_by_gene_id;
+    cluster_transcripts<ConnectByAnnotatedGeneId>(sample.transcripts,
+                                                  transcripts_by_gene_id);
+    
+	BOOST_FOREACH(AlleleAbundanceGroup& ab_group, transcripts_by_gene_id)
+    {
+        ab_group.locus_tag(locus_tag);
+        set<string> gene_ids = ab_group.gene_id();
+        assert (gene_ids.size() == 1);
+        ab_group.description(*(gene_ids.begin()));
+    }
+	
+    sample.genes = transcripts_by_gene_id;
+    
+    if (perform_cds_analysis)
+    {
+        fprintf(stderr, "Allele CDS analysis not implemented yet\n");
+        exit(1);
+        //cds_analyis(locus_tag, sample);
+    }
+    
+    if (perform_tss_analysis)    {
+        fprintf(stderr, "Allele TSS analysis not implemented yet\n");
+        exit(1);
+        //tss_analysis(locus_tag, sample);
+    }
+}
+
 // This function applies library size factors to pre-computed expression entries
 void AbundanceGroup::apply_normalization_to_abundances(const map<boost::shared_ptr<const ReadGroupProperties>, boost::shared_ptr<const AbundanceGroup> >& unnormalized_ab_group_per_replicate,
                                                        map<boost::shared_ptr<const ReadGroupProperties>, boost::shared_ptr<AbundanceGroup> >& normalized_ab_group_per_replicate)
@@ -5480,28 +5576,6 @@ StatusPerReplicateTable AlleleAbundanceGroup::maternal_status_by_replicate() con
 	return fpr;
 }
 
-double AlleleAbundanceGroup::paternal_mass_fraction() const
-{
-	double mass = 0;
-	
-	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
-	{
-		mass += ab->paternal_mass_fraction();
-	}
-	return mass;
-}
-
-double AlleleAbundanceGroup::maternal_mass_fraction() const
-{
-	double mass = 0;
-	
-	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
-	{
-		mass += ab->maternal_mass_fraction();
-	}
-	return mass;
-}
-
 double AlleleAbundanceGroup::paternal_mass_variance() const
 {
     double mass_var = 0;
@@ -6013,8 +6087,6 @@ void AlleleAbundanceGroup::calculate_locus_scaled_mass_and_variance(const vector
 
         double j_avg_mass_paternal_fraction = _abundances[j]->paternal_gamma() * avg_mass_fraction;
 		double j_avg_mass_maternal_fraction = _abundances[j]->maternal_gamma() * avg_mass_fraction;
-		_abundances[j]->paternal_mass_fraction(j_avg_mass_paternal_fraction);
-		_abundances[j]->maternal_mass_fraction(j_avg_mass_maternal_fraction);
         _abundances[j]->paternal_mass_variance(avg_mass_paternal_variances[j]);
 		_abundances[j]->maternal_mass_variance(avg_mass_maternal_variances[j]);
 		
@@ -6028,7 +6100,6 @@ void AlleleAbundanceGroup::calculate_locus_scaled_mass_and_variance(const vector
         {
 			_abundances[j]->paternal_FPKM(0);
             _abundances[j]->paternal_mass_variance(0);
-            _abundances[j]->paternal_mass_fraction(0);
         }
 		if (j_avg_mass_maternal_fraction > 0)
         {
@@ -6040,7 +6111,6 @@ void AlleleAbundanceGroup::calculate_locus_scaled_mass_and_variance(const vector
         {
             _abundances[j]->maternal_FPKM(0);
             _abundances[j]->maternal_mass_variance(0);
-            _abundances[j]->maternal_mass_fraction(0);
         }		
 	}
 }
@@ -6415,7 +6485,7 @@ void collapse_equivalent_hits_helper_allele(const vector<MateHit>& alignments,
 #define PERFORM_EQUIV_COLLAPSE 1
 
 
-void AlleleAbundanceGroup::calculate_abundance(const vector<MateHit>& alignments)
+void AlleleAbundanceGroup::calculate_abundance(const vector<MateHit>& alignments, bool perform_collapse, bool calculate_variance)
 {
 	//These vectors will esentially be different wrt their gammas, kappas, etc
 	vector<boost::shared_ptr<Abundance> > transcripts;
@@ -7079,7 +7149,7 @@ void AlleleAbundanceGroup::calculate_FPKM_covariance()
 {
 
 	bool pass = true;
-	if ((paternal_mass_fraction()+maternal_mass_fraction()) == 0 || (paternal_effective_length() == 0 && maternal_effective_length() == 0))
+	if (paternal_effective_length() == 0 && maternal_effective_length() == 0)
 	{
 		_parental_fpkm_covariance = ublas::zero_matrix<double>(2*_abundances.size(), 2*_abundances.size());
 		pass = false;
@@ -7240,26 +7310,31 @@ void AlleleAbundanceGroup::calculate_conf_intervals()
     // secondary groups.  The group splitting code needs to manage the task
     // of splitting up all the variout covariance matrices we're calculating
     // here.
-	if (paternal_status() == NUMERIC_OK)
-	{
-		// This will compute the transcript level FPKM confidence intervals
-		for (size_t j = 0; j < _abundances.size(); ++j)
-		{
+    if (paternal_status() == NUMERIC_OK && maternal_status() == NUMERIC_OK)
+    {
+        // This will compute the transcript level FPKM confidence intervals
+        for (size_t j = 0; j < _abundances.size(); ++j)
+        {
             long double paternal_fpkm_var = _abundances[j]->paternal_FPKM_variance();
-			double paternal_FPKM_hi = 0.0;      
+            long double maternal_fpkm_var = _abundances[j]->maternal_FPKM_variance();
+	    double paternal_FPKM_hi = 0.0;
+            double maternal_FPKM_hi = 0.0;
             double paternal_FPKM_lo = 0.0;
-            if (_abundances[j]->paternal_status() != NUMERIC_FAIL)
+            double maternal_FPKM_lo = 0.0;
+
+            if (_abundances[j]->paternal_status() != NUMERIC_FAIL && _abundances[j]->maternal_status() != NUMERIC_FAIL)
             {
                 paternal_FPKM_hi = _abundances[j]->paternal_FPKM() + 2 * sqrt(paternal_fpkm_var);
+                maternal_FPKM_hi = _abundances[j]->maternal_FPKM() + 2 * sqrt(maternal_fpkm_var);
                 paternal_FPKM_lo = max(0.0, (double)(_abundances[j]->paternal_FPKM() - 2 * sqrt(paternal_fpkm_var)));
-                if (!(paternal_FPKM_lo <= _abundances[j]->paternal_FPKM() && _abundances[j]->paternal_FPKM() <= paternal_FPKM_hi))
-                {
-                    //fprintf(stderr, "Error: confidence intervals are illegal! var = %Lg, fpkm = %lg, lo = %lg, hi %lg, status = %d\n", fpkm_var, _abundances[j]->FPKM(), FPKM_lo, FPKM_hi, _abundances[j]->status());
-                }
+                paternal_FPKM_lo = max(0.0, (double)(_abundances[j]->maternal_FPKM() - 2 * sqrt(maternal_fpkm_var)));
                 assert (paternal_FPKM_lo <= _abundances[j]->paternal_FPKM() && _abundances[j]->paternal_FPKM() <= paternal_FPKM_hi);
+                assert (maternal_FPKM_lo <= _abundances[j]->maternal_FPKM() && _abundances[j]->maternal_FPKM() <= maternal_FPKM_hi);
+
                 ConfidenceInterval paternal_conf(paternal_FPKM_lo, paternal_FPKM_hi);
+                ConfidenceInterval maternal_conf(maternal_FPKM_lo, maternal_FPKM_hi);
                 _abundances[j]->paternal_FPKM_conf(paternal_conf);
-                //_abundances[j]->paternal_FPKM_variance(paternal_fpkm_var);
+                _abundances[j]->maternal_FPKM_conf(maternal_conf);
             }
             else
             {
@@ -7267,148 +7342,144 @@ void AlleleAbundanceGroup::calculate_conf_intervals()
                 assert(false);
                 // TODO: nothing to do here?
             }
-		}
+        }
 		
-        // Now build a confidence interval for the whole abundance group
-		if (paternal_FPKM() > 0.0)
-		{
-			double paternal_FPKM_hi = paternal_FPKM() + 2 * sqrt(paternal_FPKM_variance());
-			double paternal_FPKM_lo = max(0.0, paternal_FPKM() - 2 * sqrt(paternal_FPKM_variance()));
-			ConfidenceInterval paternal_conf(paternal_FPKM_lo, paternal_FPKM_hi);
-			paternal_FPKM_conf(paternal_conf);
-		}
-		else
-		{
-			_paternal_FPKM_variance = 0.0;
-			ConfidenceInterval paternal_conf(0.0, 0.0);
-			paternal_FPKM_conf(paternal_conf);
-		}
+            // Now build a confidence interval for the whole abundance group
+            if (paternal_FPKM() > 0.0)
+            {
+                double paternal_FPKM_hi = paternal_FPKM() + 2 * sqrt(paternal_FPKM_variance());
+                double paternal_FPKM_lo = max(0.0, paternal_FPKM() - 2 * sqrt(paternal_FPKM_variance()));
+                ConfidenceInterval paternal_conf(paternal_FPKM_lo, paternal_FPKM_hi);
+                paternal_FPKM_conf(paternal_conf);
+            }
+            else
+            {
+                _paternal_FPKM_variance = 0.0;
+                ConfidenceInterval paternal_conf(0.0, 0.0);
+                paternal_FPKM_conf(paternal_conf);
+            }
+
+            if (maternal_FPKM() > 0.0)
+            {
+                double maternal_FPKM_hi = maternal_FPKM() + 2 * sqrt(maternal_FPKM_variance());
+                double maternal_FPKM_lo = max(0.0, maternal_FPKM() - 2 * sqrt(maternal_FPKM_variance()));
+                ConfidenceInterval maternal_conf(maternal_FPKM_lo, maternal_FPKM_hi);
+                maternal_FPKM_conf(maternal_conf);
+            }
+            else
+            {
+                _maternal_FPKM_variance = 0.0;
+                ConfidenceInterval maternal_conf(0.0, 0.0);
+                maternal_FPKM_conf(maternal_conf);
+            }
 	}
 	else
 	{
 		double sum_paternal_transfrag_FPKM_hi = 0;
-        double max_paternal_fpkm = 0.0;
-        //double min_fpkm = 1e100;
-		BOOST_FOREACH (boost::shared_ptr<Abundance> pA, _abundances)
-		{
-			double paternal_FPKM_hi;
-			double paternal_FPKM_lo;
-			if (pA->paternal_effective_length() > 0)
-			{
+                double sum_maternal_transfrag_FPKM_hi = 0;
+                double max_paternal_fpkm = 0.0;
+                double max_maternal_fpkm = 0.0;
+
+                double avg_X_g = 0.0;
+                double avg_mass_fraction = 0.0;
+
+                int N = _abundances.size();
+                vector<double> avg_mass_paternal_variances(N, 0.0);
+                vector<double> avg_mass_maternal_variances(N, 0.0);
+        
+        for (map<boost::shared_ptr<ReadGroupProperties const>, double>::iterator itr = _count_per_replicate.begin();
+             itr != _count_per_replicate.end();
+             ++itr)
+        {
+            boost::shared_ptr<ReadGroupProperties const> rg_props = itr->first;
+            double scaled_mass = itr->second;
+            double scaled_total_mass = rg_props->normalized_map_mass();
+            avg_X_g += scaled_mass;
+            boost::shared_ptr<MassDispersionModel const> disperser = rg_props->mass_dispersion_model();
+            for (size_t j = 0; j < N; ++j)
+            {
+                double scaled_paternal_variance;
+                double scaled_maternal_variance;
+                //scaled_variance = disperser->scale_mass_variance(scaled_mass * _abundances[j]->gamma());
+                scaled_paternal_variance = _abundances[j]->paternal_gamma() * disperser->scale_mass_variance(scaled_mass);
+                scaled_maternal_variance = _abundances[j]->maternal_gamma() * disperser->scale_mass_variance(scaled_mass);
+                avg_mass_paternal_variances[j] += scaled_paternal_variance;
+                avg_mass_maternal_variances[j] += scaled_maternal_variance;
+            }
+            assert (disperser->scale_mass_variance(scaled_mass) != 0 || scaled_mass == 0);
+            avg_mass_fraction += (scaled_mass / scaled_total_mass);
+        }
+        
+        double num_replicates = _count_per_replicate.size();
+        
+        if (num_replicates)
+        {
+            avg_X_g /= num_replicates;
+            avg_mass_fraction /= num_replicates;
+            for (size_t j = 0; j < N; ++j)
+            {
+                avg_mass_paternal_variances[j] /= num_replicates;
+                avg_mass_maternal_variances[j] /= num_replicates;
+            }
+        }
+
+        BOOST_FOREACH (boost::shared_ptr<Abundance> pA, _abundances)
+        {
+            double paternal_avg_mass_fraction = pA->paternal_gamma() * avg_mass_fraction;
+            double maternal_avg_mass_fraction = pA->maternal_gamma() * avg_mass_fraction;
+
+            double paternal_FPKM_hi = 0.0;
+            double paternal_FPKM_lo = 0.0;
+            if (pA->paternal_effective_length() > 0)
+            {
                 double norm_paternal_frag_density = 1000000000;
                 norm_paternal_frag_density /= pA->paternal_effective_length();
-                norm_paternal_frag_density *= (paternal_mass_fraction());
+                norm_paternal_frag_density *= paternal_avg_mass_fraction;
                 double paternal_fpkm_high = norm_paternal_frag_density;
                 
                 double paternal_var_fpkm = paternal_fpkm_high; 
                 
-				paternal_FPKM_hi = paternal_fpkm_high + 2 * sqrt(paternal_var_fpkm);
-				paternal_FPKM_lo = 0.0;
-				ConfidenceInterval paternal_conf(paternal_FPKM_lo, paternal_FPKM_hi);
-				assert (paternal_FPKM_lo <= pA->paternal_FPKM() && pA->paternal_FPKM() <= paternal_FPKM_hi);
-				pA->paternal_FPKM_conf(paternal_conf);
-                //pA->paternal_FPKM_variance(paternal_var_fpkm);
-				max_paternal_fpkm = max(sum_paternal_transfrag_FPKM_hi, paternal_FPKM_hi);
-			}
-			else
-			{
-				paternal_FPKM_hi = 0.0;
-				paternal_FPKM_lo = 0.0;
-				ConfidenceInterval paternal_conf(0.0, 0.0);
-				pA->paternal_FPKM_conf(paternal_conf);
-                //pA->paternal_FPKM_variance(0.0);
-			}
-            
-		}
-		// In the case of a numeric failure, the groups error bars need to be 
-		// set such that 
-		paternal_FPKM_conf(ConfidenceInterval(0.0, max_paternal_fpkm + 2 * sqrt(paternal_FPKM_variance())));
-	}
-	//
-	if (maternal_status() == NUMERIC_OK)
-	{
-		// This will compute the transcript level FPKM confidence intervals
-		for (size_t j = 0; j < _abundances.size(); ++j)
-		{
-            long double maternal_fpkm_var = _abundances[j]->maternal_FPKM_variance();
-			double maternal_FPKM_hi = 0.0;      
-            double maternal_FPKM_lo = 0.0;
-            if (_abundances[j]->maternal_status() != NUMERIC_FAIL)
-            {
-                maternal_FPKM_hi = _abundances[j]->maternal_FPKM() + 2 * sqrt(maternal_fpkm_var);
-                maternal_FPKM_lo = max(0.0, (double)(_abundances[j]->maternal_FPKM() - 2 * sqrt(maternal_fpkm_var)));
-                if (!(maternal_FPKM_lo <= _abundances[j]->maternal_FPKM() && _abundances[j]->maternal_FPKM() <= maternal_FPKM_hi))
-                {
-                    //fprintf(stderr, "Error: confidence intervals are illegal! var = %Lg, fpkm = %lg, lo = %lg, hi %lg, status = %d\n", fpkm_var, _abundances[j]->FPKM(), FPKM_lo, FPKM_hi, _abundances[j]->status());
-                }
-                assert (maternal_FPKM_lo <= _abundances[j]->maternal_FPKM() && _abundances[j]->maternal_FPKM() <= maternal_FPKM_hi);
-                ConfidenceInterval maternal_conf(maternal_FPKM_lo, maternal_FPKM_hi);
-                _abundances[j]->maternal_FPKM_conf(maternal_conf);
-                //_abundances[j]->maternal_FPKM_variance(maternal_fpkm_var);
+                paternal_FPKM_hi = paternal_fpkm_high + 2 * sqrt(paternal_var_fpkm);
+                paternal_FPKM_lo = 0.0;
+                ConfidenceInterval paternal_conf(paternal_FPKM_lo, paternal_FPKM_hi);
+		assert (paternal_FPKM_lo <= pA->paternal_FPKM() && pA->paternal_FPKM() <= paternal_FPKM_hi);
+		pA->paternal_FPKM_conf(paternal_conf);
+		max_paternal_fpkm = max(sum_paternal_transfrag_FPKM_hi, paternal_FPKM_hi);
             }
             else
             {
-                // we shouldn't be able to get here
-                assert(false);
-                // TODO: nothing to do here?
+                ConfidenceInterval paternal_conf(0.0, 0.0);
+                pA->paternal_FPKM_conf(paternal_conf);
             }
-		}
-		
-        // Now build a confidence interval for the whole abundance group
-		if (maternal_FPKM() > 0.0)
-		{
-			double maternal_FPKM_hi = maternal_FPKM() + 2 * sqrt(maternal_FPKM_variance());
-			double maternal_FPKM_lo = max(0.0, maternal_FPKM() - 2 * sqrt(maternal_FPKM_variance()));
-			ConfidenceInterval maternal_conf(maternal_FPKM_lo, maternal_FPKM_hi);
-			maternal_FPKM_conf(maternal_conf);
-		}
-		else
-		{
-			_maternal_FPKM_variance = 0.0;
-			ConfidenceInterval maternal_conf(0.0, 0.0);
-			maternal_FPKM_conf(maternal_conf);
-		}
-	}
-	else
-	{
-		double sum_maternal_transfrag_FPKM_hi = 0;
-        double max_maternal_fpkm = 0.0;
-        //double min_fpkm = 1e100;
-		BOOST_FOREACH (boost::shared_ptr<Abundance> pA, _abundances)
-		{
-			double maternal_FPKM_hi;
-			double maternal_FPKM_lo;
-			if (pA->maternal_effective_length() > 0)
-			{
+
+            double maternal_FPKM_hi = 0.0;
+            double maternal_FPKM_lo = 0.0;
+            if (pA->maternal_effective_length() > 0)
+            {
                 double norm_maternal_frag_density = 1000000000;
                 norm_maternal_frag_density /= pA->maternal_effective_length();
-                norm_maternal_frag_density *= (maternal_mass_fraction());
+                norm_maternal_frag_density *= maternal_avg_mass_fraction;
                 double maternal_fpkm_high = norm_maternal_frag_density;
-                
-                double maternal_var_fpkm = maternal_fpkm_high; 
-                
-				maternal_FPKM_hi = maternal_fpkm_high + 2 * sqrt(maternal_var_fpkm);
-				maternal_FPKM_lo = 0.0;
-				ConfidenceInterval maternal_conf(maternal_FPKM_lo, maternal_FPKM_hi);
-				assert (maternal_FPKM_lo <= pA->maternal_FPKM() && pA->maternal_FPKM() <= maternal_FPKM_hi);
-				pA->maternal_FPKM_conf(maternal_conf);
-                //pA->maternal_FPKM_variance(maternal_var_fpkm);
-				max_maternal_fpkm = max(sum_maternal_transfrag_FPKM_hi, maternal_FPKM_hi);
-			}
-			else
-			{
-				maternal_FPKM_hi = 0.0;
-				maternal_FPKM_lo = 0.0;
-				ConfidenceInterval maternal_conf(0.0, 0.0);
-				pA->maternal_FPKM_conf(maternal_conf);
-                //pA->maternal_FPKM_variance(0.0);
-			}
-            
-		}
-		// In the case of a numeric failure, the groups error bars need to be 
-		// set such that 
-		maternal_FPKM_conf(ConfidenceInterval(0.0, max_maternal_fpkm + 2 * sqrt(maternal_FPKM_variance())));
-	}
+
+                double maternal_var_fpkm = maternal_fpkm_high;
+
+                maternal_FPKM_hi = maternal_fpkm_high + 2 * sqrt(maternal_var_fpkm);
+                maternal_FPKM_lo = 0.0;
+                ConfidenceInterval maternal_conf(maternal_FPKM_lo, maternal_FPKM_hi);
+                assert (maternal_FPKM_lo <= pA->maternal_FPKM() && pA->maternal_FPKM() <= maternal_FPKM_hi);
+                pA->maternal_FPKM_conf(maternal_conf);
+                max_maternal_fpkm = max(sum_maternal_transfrag_FPKM_hi, maternal_FPKM_hi);
+            }
+            else
+            {
+               ConfidenceInterval maternal_conf(0.0, 0.0);
+               pA->maternal_FPKM_conf(maternal_conf); 
+            }
+        }
+
+        paternal_FPKM_conf(ConfidenceInterval(0.0, max_paternal_fpkm + 2 * sqrt(paternal_FPKM_variance())));
+        maternal_FPKM_conf(ConfidenceInterval(0.0, max_maternal_fpkm + 2 * sqrt(maternal_FPKM_variance())));
+    }
 }
 
 void compute_cond_probs_and_effective_lengths_allele(const vector<MateHit>& alignments,
@@ -7966,6 +8037,41 @@ void AlleleAbundanceGroup::calculate_iterated_exp_count_covariance(const vector<
 	}
 }
 
+bool generate_null_js_samples(const vector<Eigen::VectorXd>& rel_abundances,
+                              size_t num_js_samples,
+                              vector<double>& js_samples)
+{
+    if (rel_abundances.empty())
+        return true;
+    
+    size_t num_abundances = rel_abundances.front().size();
+    
+    if (num_abundances <= 1)
+        return true;
+   
+    js_samples.clear();
+    
+    size_t num_samples = num_js_samples;
+    vector<Eigen::VectorXd> sample_kappas(2);
+    
+    boost::uniform_int<> null_uniform_dist(0,rel_abundances.size()-1);
+    boost::mt19937 null_rng; 
+    boost::variate_generator<boost::mt19937&, boost::uniform_int<> > null_uniform_gen(null_rng, null_uniform_dist); 
+    
+    for (size_t i = 0; i < num_samples; ++i)
+    {
+        sample_kappas[0] = rel_abundances[null_uniform_gen()];
+        sample_kappas[1] = rel_abundances[null_uniform_gen()];
+        
+        double js = jensen_shannon_distance(sample_kappas);  
+        assert(!isnan(js));
+        js_samples.push_back(js);
+    }
+    
+    sort(js_samples.begin(), js_samples.end());
+
+    return true;
+} 
 
 void AlleleAbundanceGroup::calculate_kappas()
 {
@@ -8992,5 +9098,17 @@ double compute_doc_allele(int bundle_origin,
 	}
 	
 	return total_doc/(double)total_len;
+}
+
+void allele_impl_error()
+{
+    fprintf(stderr, "Non-allelic abundance method called with allelic abundance class!\n");
+    exit(1);
+}
+
+void nonallele_impl_error()
+{
+    fprintf(stderr, "Allelic abundance method called with non-allelic abundance class!\n");
+    exit(1);
 }
 

@@ -78,7 +78,7 @@ void add_to_allele_tracking_table(size_t sample_index,
 	{
 		fpkm_track.locus_tag = ab.locus_tag();
 		fpkm_track.description = ab.description();
-		shared_ptr<Scaffold> transfrag = ab.transfrag();
+		boost::shared_ptr<Scaffold> transfrag = ab.transfrag();
 		if (transfrag && transfrag->nearest_ref_id() != "")
 		{
 			fpkm_track.classcode = transfrag->nearest_ref_classcode();
@@ -108,8 +108,12 @@ void add_to_allele_tracking_table(size_t sample_index,
 								 ab.paternal_FPKM(), 
 								 ab.paternal_FPKM_by_replicate(),
                                  ab.paternal_FPKM_variance(),
+                                 ab.paternal_FPKM_conf().low,
+                                 ab.paternal_FPKM_conf().high,
                                  ab.paternal_status(),
-                                 ab.paternal_status_by_replicate());
+                                 ab.paternal_status_by_replicate(),
+                                 ab.fpkm_samples(),
+                                 ab.paternal_gamma());
 	FPKMContext maternal_r1 = FPKMContext(ab.num_maternal_fragments(), 
                                  ab.num_maternal_fragment_var(),
                                  ab.num_maternal_fragment_uncertainty_var(),
@@ -118,8 +122,12 @@ void add_to_allele_tracking_table(size_t sample_index,
 								 ab.maternal_FPKM(), 
 								 ab.maternal_FPKM_by_replicate(),
                                  ab.maternal_FPKM_variance(),
+                                 ab.maternal_FPKM_conf().low,
+                                 ab.maternal_FPKM_conf().high,
                                  ab.maternal_status(),
-                                 ab.maternal_status_by_replicate());
+                                 ab.maternal_status_by_replicate(),
+                                 ab.fpkm_samples(),
+                                 ab.maternal_gamma());
     
 	vector<FPKMContext>& paternal_fpkms = inserted.first->second.paternal_fpkm_series;
     if (sample_index < paternal_fpkms.size())
@@ -382,6 +390,8 @@ vector<vector<boost::shared_ptr<SampleAbundances> > > TestLauncher::test_finishe
                     _p_bar->update(itr->second.front()->locus_tag.c_str(), 1);
                 }
                 record_tracking_data(itr->second);
+                if (!_track_only)
+                    samples_for_testing.push_back(itr->second);
             }
             itr = _samples.erase(itr);
         }
@@ -391,6 +401,8 @@ vector<vector<boost::shared_ptr<SampleAbundances> > > TestLauncher::test_finishe
             ++itr;
         }
     }
+
+    return samples_for_testing;
 }
 
 
@@ -415,13 +427,13 @@ void AlleleTestLauncher::register_locus(const string& locus_id)
     if (itr == _samples.end())
     {
         pair<launcher_sample_table::iterator, bool> p;
-        vector<shared_ptr<SampleAlleleAbundances> >abs(_orig_workers);
+        vector<boost::shared_ptr<SampleAlleleAbundances> >abs(_orig_workers);
         _samples.push_back(make_pair(locus_id, abs));
     }
 }
 
 void AlleleTestLauncher::abundance_avail(const string& locus_id, 
-                                   shared_ptr<SampleAlleleAbundances> ab, 
+                                   boost::shared_ptr<SampleAlleleAbundances> ab, 
                                    size_t factory_id)
 {
 #if ENABLE_THREADS
@@ -438,9 +450,9 @@ void AlleleTestLauncher::abundance_avail(const string& locus_id,
 
 // Note: this routine should be called under lock - it doesn't
 // acquire the lock itself. 
-bool AlleleTestLauncher::all_samples_reported_in(vector<shared_ptr<SampleAlleleAbundances> >& abundances)
+bool AlleleTestLauncher::all_samples_reported_in(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances)
 {    
-    foreach (shared_ptr<SampleAlleleAbundances> ab, abundances)
+    BOOST_FOREACH (boost::shared_ptr<SampleAlleleAbundances> ab, abundances)
     {
         if (!ab)
         {
@@ -452,7 +464,7 @@ bool AlleleTestLauncher::all_samples_reported_in(vector<shared_ptr<SampleAlleleA
 
 // Note: this routine should be called under lock - it doesn't
 // acquire the lock itself. 
-void AlleleTestLauncher::perform_testing(vector<shared_ptr<SampleAlleleAbundances> >& abundances)
+void AlleleTestLauncher::perform_testing(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances)
 {
     assert (abundances.size() == _orig_workers);
 	// Just verify that all the loci from each factory match up.
@@ -481,7 +493,7 @@ void AlleleTestLauncher::perform_testing(vector<shared_ptr<SampleAlleleAbundance
 
 // Note: this routine should be called under lock - it doesn't
 // acquire the lock itself. 
-void AlleleTestLauncher::record_tracking_data(vector<shared_ptr<SampleAlleleAbundances> >& abundances)
+void AlleleTestLauncher::record_tracking_data(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances)
 {
     assert (abundances.size() == _orig_workers);
 	// Just verify that all the loci from each factory match up.
@@ -515,20 +527,20 @@ void AlleleTestLauncher::record_tracking_data(vector<shared_ptr<SampleAlleleAbun
 		const AlleleAbundanceGroup& ab_group = abundances[i]->transcripts;
         //fprintf(stderr, "[%d] count = %lg\n",i,  ab_group.num_fragments());
 		//nimrod??
-		foreach (shared_ptr<Abundance> ab, ab_group.abundances())
+		BOOST_FOREACH (boost::shared_ptr<Abundance> ab, ab_group.abundances())
 		{
 			add_to_allele_tracking_table(i, *ab, _tracking->isoform_fpkm_tracking);
             //assert (_tracking->isoform_fpkm_tracking.num_fragments_by_replicate().empty() == false);
 		}
-		foreach (AlleleAbundanceGroup& ab, abundances[i]->cds)
+		BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances[i]->cds)
 		{
 			add_to_allele_tracking_table(i, ab, _tracking->cds_fpkm_tracking);
 		}
-		foreach (AlleleAbundanceGroup& ab, abundances[i]->primary_transcripts)
+		BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances[i]->primary_transcripts)
 		{
 			add_to_allele_tracking_table(i, ab, _tracking->tss_group_fpkm_tracking);
 		}
-		foreach (AlleleAbundanceGroup& ab, abundances[i]->genes)
+		BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances[i]->genes)
 		{
 			add_to_allele_tracking_table(i, ab, _tracking->gene_fpkm_tracking);
 		}
@@ -538,11 +550,13 @@ void AlleleTestLauncher::record_tracking_data(vector<shared_ptr<SampleAlleleAbun
 #endif
 }
 
-void AlleleTestLauncher::test_finished_loci()
+vector<vector<boost::shared_ptr<SampleAlleleAbundances> > > AlleleTestLauncher::test_finished_loci()
 {
 #if ENABLE_THREADS
 	boost::mutex::scoped_lock lock(_launcher_lock);
 #endif  
+
+    vector<vector<boost::shared_ptr<SampleAlleleAbundances> > > samples_for_testing;
 
     launcher_sample_table::iterator itr = _samples.begin(); 
     while(itr != _samples.end())
@@ -589,11 +603,6 @@ void AlleleTestLauncher::test_finished_loci()
 	_launcher_lock.unlock();
 #endif
     return samples_for_testing;
-//    for (size_t i = 0; i < samples_for_testing.size(); ++i)
-//    {
-//        vector<boost::shared_ptr<SampleAbundances> > samples_i = samples_for_testing[i];
-//        perform_testing(samples_i);
-//    }
 }
 
 //// Sampling-based test:
@@ -1054,6 +1063,31 @@ bool test_js(const AbundanceGroup& prev_abundance,
     return true;
 }
 
+// Calculates the probability that drawing two samples from the provided
+// relative abundance distribution would have produced a value at least as
+// extreme as the given js value.
+bool one_sided_js_test(const vector<double>& js_samples,
+                       double js,
+                       double& p_val)
+{
+        vector<double>::const_iterator lb = lower_bound(js_samples.begin(), js_samples.end(), js);
+    if (lb != js_samples.end())
+    {
+        size_t num_less_extreme_samples = lb - js_samples.begin();
+        p_val =  1.0  - ((double)num_less_extreme_samples/js_samples.size());
+    }
+    else if (js_samples.size())
+    {
+        p_val = 1.0/js_samples.size();
+    }
+    else
+    {
+        p_val = 1.0;
+        return false;
+    }
+    return true;
+}
+
 bool test_js(const AlleleAbundanceGroup& prev_abundance,
              const AlleleAbundanceGroup& curr_abundance,
              double& js,
@@ -1420,509 +1454,6 @@ string bundle_locus_tag(const RefSequenceTable& rt,
 	return string(locus_buf);
 }
 
-void sample_abundance_worker(const string& locus_tag,
-                             const set<shared_ptr<ReadGroupProperties const> >& rg_props,
-                             SampleAbundances& sample,
-                             HitBundle* sample_bundle,
-                             bool perform_cds_analysis,
-                             bool perform_tss_analysis)
-{
-    vector<shared_ptr<Abundance> > abundances;
-    
-    foreach(shared_ptr<Scaffold> s, sample_bundle->ref_scaffolds())
-    {
-        TranscriptAbundance* pT = new TranscriptAbundance;
-        pT->transfrag(s);
-        shared_ptr<Abundance> ab(pT);
-        ab->description(s->annotated_trans_id());
-        ab->locus_tag(locus_tag);
-        abundances.push_back(ab);
-    }
-
-    sample.transcripts = AbundanceGroup(abundances);
-    sample.transcripts.init_rg_props(rg_props);
-    
-    vector<MateHit> hits_in_cluster;
-    
-    if (sample_bundle->hits().size() < (size_t)max_frags_per_bundle)
-    {
-		get_alignments_from_scaffolds(sample.transcripts.abundances(),
-                                      hits_in_cluster);
-    
-		// Compute the individual transcript FPKMs via each sample's 
-        // AbundanceGroup for this locus.
-        
-        sample.transcripts.calculate_abundance(hits_in_cluster);
-	}
-    else
-    {
-		foreach(shared_ptr<Abundance>  ab, abundances)
-        {
-            ab->status(NUMERIC_HI_DATA);
-
-            CountPerReplicateTable cpr;
-            FPKMPerReplicateTable fpr;
-            StatusPerReplicateTable spr;
-            for (set<shared_ptr<ReadGroupProperties const> >::const_iterator itr = rg_props.begin();
-                 itr != rg_props.end();
-                 ++itr)
-            {
-                cpr[*itr] = 0;
-                fpr[*itr] = 0;
-                spr[*itr] = NUMERIC_HI_DATA;
-            }
-            ab->num_fragments_by_replicate(cpr);
-            ab->FPKM_by_replicate(fpr);
-            ab->status_by_replicate(spr);
-        }
-        
-    }
-	
-    // Cluster transcripts by gene_id
-    vector<AbundanceGroup> transcripts_by_gene_id;
-    cluster_transcripts<ConnectByAnnotatedGeneId>(sample.transcripts,
-                                                  transcripts_by_gene_id);
-    
-	foreach(AbundanceGroup& ab_group, transcripts_by_gene_id)
-    {
-        ab_group.locus_tag(locus_tag);
-        set<string> gene_ids = ab_group.gene_id();
-        assert (gene_ids.size() == 1);
-        ab_group.description(*(gene_ids.begin()));
-    }
-	
-    sample.genes = transcripts_by_gene_id;
-    
-    if (perform_cds_analysis)
-    {
-        // Cluster transcripts by CDS
-        vector<AbundanceGroup> transcripts_by_cds;
-        ublas::matrix<double> cds_gamma_cov;
-        ublas::matrix<double> cds_count_cov;
-        ublas::matrix<double> cds_iterated_exp_count_cov;
-        ublas::matrix<double> cds_fpkm_cov;
-        vector<Eigen::VectorXd> cds_assigned_counts;
-        
-        vector<bool> mask(sample.transcripts.abundances().size(), true);
-        for (size_t i = 0; i < sample.transcripts.abundances().size(); ++i)
-        {
-            if (*(sample.transcripts.abundances()[i]->protein_id().begin()) == "")
-            {
-                mask[i] = false;
-            }
-        }
-        
-        AbundanceGroup trans_with_p_id; 
-        sample.transcripts.filter_group(mask, trans_with_p_id);
-        
-        cluster_transcripts<ConnectByAnnotatedProteinId>(trans_with_p_id,
-                                                         transcripts_by_cds,
-                                                         &cds_gamma_cov,
-                                                         &cds_iterated_exp_count_cov,
-                                                         &cds_count_cov,
-                                                         &cds_fpkm_cov,
-                                                         &cds_assigned_counts);
-        
-        foreach(AbundanceGroup& ab_group, transcripts_by_cds)
-        {
-            ab_group.locus_tag(locus_tag);
-            set<string> protein_ids = ab_group.protein_id();
-            assert (protein_ids.size() == 1);
-            string desc = *(protein_ids.begin()); 
-            //if (desc != "")
-            //{
-            assert (desc != "");
-            ab_group.description(*(protein_ids.begin()));
-            //}
-        }
-        
-        sample.cds = transcripts_by_cds;
-        
-        // Group the CDS clusters by gene
-        vector<shared_ptr<Abundance> > cds_abundances;
-        double max_cds_mass_variance = 0.0; 
-        set<shared_ptr<ReadGroupProperties const> > rg_props;
-        foreach (AbundanceGroup& ab_group, sample.cds)
-        {
-            //if (ab_group.description() != "")
-            {
-                cds_abundances.push_back(shared_ptr<Abundance>(new AbundanceGroup(ab_group)));
-                max_cds_mass_variance = max(ab_group.max_mass_variance(), max_cds_mass_variance);
-                rg_props.insert(ab_group.rg_props().begin(), ab_group.rg_props().end()); 
-            }
-        }
-        AbundanceGroup cds(cds_abundances,
-                           cds_gamma_cov,
-                           cds_iterated_exp_count_cov,
-                           cds_count_cov,
-                           cds_fpkm_cov,
-                           max_cds_mass_variance,
-                           rg_props,
-                           cds_assigned_counts);
-        
-        vector<AbundanceGroup> cds_by_gene;
-        
-        cluster_transcripts<ConnectByAnnotatedGeneId>(cds,
-                                                      cds_by_gene);
-        
-        foreach(AbundanceGroup& ab_group, cds_by_gene)
-        {
-            ab_group.locus_tag(locus_tag);
-            set<string> gene_ids = ab_group.gene_id();
-            assert (gene_ids.size() == 1);
-            ab_group.description(*(gene_ids.begin()));
-        }
-        
-        sample.gene_cds = cds_by_gene;
-    }
-    
-    if (perform_tss_analysis)
-    {
-        // Cluster transcripts by start site (TSS)
-        vector<AbundanceGroup> transcripts_by_tss;
-        
-        ublas::matrix<double> tss_gamma_cov;
-        ublas::matrix<double> tss_count_cov;
-        ublas::matrix<double> tss_iterated_exp_count_cov;
-        ublas::matrix<double> tss_fpkm_cov;
-        vector<Eigen::VectorXd> tss_assigned_counts;
-        
-        vector<bool> mask(sample.transcripts.abundances().size(), true);
-        for (size_t i = 0; i < sample.transcripts.abundances().size(); ++i)
-        {
-            if (*(sample.transcripts.abundances()[i]->tss_id().begin()) == "")
-            {
-                mask[i] = false;
-            }
-        }
-        
-        AbundanceGroup trans_with_tss; 
-        sample.transcripts.filter_group(mask, trans_with_tss);
-        
-        cluster_transcripts<ConnectByAnnotatedTssId>(trans_with_tss,
-                                                     transcripts_by_tss,
-                                                     &tss_gamma_cov,
-                                                     &tss_iterated_exp_count_cov,
-                                                     &tss_count_cov,
-                                                     &tss_fpkm_cov,
-                                                     &tss_assigned_counts);
-        
-        
-        foreach(AbundanceGroup& ab_group, transcripts_by_tss)
-        {
-            ab_group.locus_tag(locus_tag);
-            set<string> tss_ids = ab_group.tss_id();
-            assert (tss_ids.size() == 1);
-            string desc = *(tss_ids.begin()); 
-            assert (desc != "");
-            ab_group.description(*(tss_ids.begin()));
-            
-        }
-        
-        sample.primary_transcripts = transcripts_by_tss;
-        double max_tss_mass_variance = 0.0;
-        
-        // Group TSS clusters by gene
-        vector<shared_ptr<Abundance> > primary_transcript_abundances;
-        set<shared_ptr<ReadGroupProperties const> > rg_props;
-        foreach (AbundanceGroup& ab_group, sample.primary_transcripts)
-        {
-            primary_transcript_abundances.push_back(shared_ptr<Abundance>(new AbundanceGroup(ab_group)));
-            max_tss_mass_variance = max(max_tss_mass_variance, ab_group.max_mass_variance());
-            rg_props.insert(ab_group.rg_props().begin(), ab_group.rg_props().end());
-        }
-        
-        AbundanceGroup primary_transcripts(primary_transcript_abundances,
-                                           tss_gamma_cov,
-                                           tss_iterated_exp_count_cov,
-                                           tss_count_cov,
-                                           tss_fpkm_cov,
-                                           max_tss_mass_variance,
-                                           rg_props,
-                                           tss_assigned_counts);
-        
-        vector<AbundanceGroup> primary_transcripts_by_gene;
-        
-        cluster_transcripts<ConnectByAnnotatedGeneId>(primary_transcripts,
-                                                      primary_transcripts_by_gene);
-        
-        foreach(AbundanceGroup& ab_group, primary_transcripts_by_gene)
-        {
-            ab_group.locus_tag(locus_tag);
-            set<string> gene_ids = ab_group.gene_id();
-//            if (gene_ids.size() > 1)
-//            {
-//                foreach (string st, gene_ids)
-//                {
-//                    fprintf(stderr, "%s\n", st.c_str());
-//                }
-//                ab_group.gene_id();
-//            }
-            assert (gene_ids.size() == 1);
-            ab_group.description(*(gene_ids.begin()));
-        }
-        
-        sample.gene_primary_transcripts = primary_transcripts_by_gene;
-    }
-}
-
-void sample_abundance_worker(const string& locus_tag,
-                             const set<shared_ptr<ReadGroupProperties const> >& rg_props,
-                             SampleAlleleAbundances& sample,
-                             HitBundle* sample_bundle,
-                             bool perform_cds_analysis,
-                             bool perform_tss_analysis)
-{
-    vector<shared_ptr<Abundance> > abundances;
-    
-    foreach(shared_ptr<Scaffold> s, sample_bundle->ref_scaffolds())
-    {
-        AlleleTranscriptAbundance* pT = new AlleleTranscriptAbundance;
-        pT->transfrag(s);
-		pT->set_allele_informative();
-        shared_ptr<Abundance> ab(pT);
-        ab->description(s->annotated_trans_id());
-        ab->locus_tag(locus_tag);
-        abundances.push_back(ab);
-    }
-	sample.transcripts = AlleleAbundanceGroup(abundances);
-    sample.transcripts.init_rg_props(rg_props);
-    
-    vector<MateHit> hits_in_cluster;
-    
-    if (sample_bundle->hits().size() < (size_t)max_frags_per_bundle)
-    {
-		get_alignments_from_scaffolds(sample.transcripts.abundances(),
-                                      hits_in_cluster);
-        
-        // Compute the individual transcript FPKMs via each sample's 
-        // AbundanceGroup for this locus.
-        
-        sample.transcripts.calculate_abundance(hits_in_cluster);
-    }
-    else
-    {
-		foreach(shared_ptr<Abundance>  ab, abundances)
-        {
-            ab->paternal_status(NUMERIC_HI_DATA);
-			ab->maternal_status(NUMERIC_HI_DATA);
-            CountPerReplicateTable paternal_cpr,maternal_cpr;
-            FPKMPerReplicateTable paternal_fpr,maternal_fpr;
-            StatusPerReplicateTable paternal_spr,maternal_spr;
-            for (set<shared_ptr<ReadGroupProperties const> >::const_iterator itr = rg_props.begin();
-                 itr != rg_props.end();
-                 ++itr)
-            {
-                paternal_cpr[*itr] = 0;
-				maternal_cpr[*itr] = 0;
-                paternal_fpr[*itr] = 0;
-				maternal_fpr[*itr] = 0;
-                paternal_spr[*itr] = NUMERIC_HI_DATA;
-				maternal_spr[*itr] = NUMERIC_HI_DATA;
-            }
-            ab->num_paternal_fragments_by_replicate(paternal_cpr);
-			ab->num_maternal_fragments_by_replicate(maternal_cpr);
-            ab->paternal_FPKM_by_replicate(paternal_fpr);
-			ab->maternal_FPKM_by_replicate(maternal_fpr);
-            ab->paternal_status_by_replicate(paternal_spr);
-			ab->maternal_status_by_replicate(maternal_spr);
-        }
-        
-    }
-    
-    // Cluster transcripts by gene_id
-    vector<AlleleAbundanceGroup> transcripts_by_gene_id;
-    cluster_transcripts<ConnectByAnnotatedGeneId>(sample.transcripts,
-                                                  transcripts_by_gene_id);
-    
-	foreach(AlleleAbundanceGroup& ab_group, transcripts_by_gene_id)
-    {
-        ab_group.locus_tag(locus_tag);
-        set<string> gene_ids = ab_group.gene_id();
-        assert (gene_ids.size() == 1);
-        ab_group.description(*(gene_ids.begin()));
-    }
-	
-    sample.genes = transcripts_by_gene_id;
-    
-    if (perform_cds_analysis)
-    {
-        // Cluster transcripts by CDS
-        vector<AlleleAbundanceGroup> transcripts_by_cds;
-        ublas::matrix<double> cds_gamma_cov;
-        ublas::matrix<double> cds_count_cov;
-        ublas::matrix<double> cds_iterated_exp_count_cov;
-        ublas::matrix<double> cds_fpkm_cov;
-        vector<Eigen::VectorXd> paternal_cds_assigned_counts;
-		vector<Eigen::VectorXd> maternal_cds_assigned_counts;
-        
-        vector<bool> mask(sample.transcripts.abundances().size(), true);
-        for (size_t i = 0; i < sample.transcripts.abundances().size(); ++i)
-        {
-            if (*(sample.transcripts.abundances()[i]->protein_id().begin()) == "")
-            {
-                mask[i] = false;
-            }
-        }
-        
-        AlleleAbundanceGroup trans_with_p_id; 
-        sample.transcripts.filter_group(mask, trans_with_p_id);
-        
-        cluster_transcripts<ConnectByAnnotatedProteinId>(trans_with_p_id,
-                                                         transcripts_by_cds,
-                                                         &cds_gamma_cov,
-                                                         &cds_iterated_exp_count_cov,
-                                                         &cds_count_cov,
-                                                         &cds_fpkm_cov,
-                                                         &paternal_cds_assigned_counts,
-														 &maternal_cds_assigned_counts);
-        
-        foreach(AlleleAbundanceGroup& ab_group, transcripts_by_cds)
-        {
-            ab_group.locus_tag(locus_tag);
-            set<string> protein_ids = ab_group.protein_id();
-            assert (protein_ids.size() == 1);
-            string desc = *(protein_ids.begin()); 
-            //if (desc != "")
-            //{
-            assert (desc != "");
-            ab_group.description(*(protein_ids.begin()));
-            //}
-        }
-        
-        sample.cds = transcripts_by_cds;
-        
-        // Group the CDS clusters by gene
-        vector<shared_ptr<Abundance> > cds_abundances;
-        double max_cds_mass_variance = 0.0; 
-        set<shared_ptr<ReadGroupProperties const> > rg_props;
-        foreach (AlleleAbundanceGroup& ab_group, sample.cds)
-        {
-            //if (ab_group.description() != "")
-            {
-                cds_abundances.push_back(shared_ptr<Abundance>(new AlleleAbundanceGroup(ab_group)));
-                max_cds_mass_variance = max(ab_group.max_mass_variance(), max_cds_mass_variance);
-                rg_props.insert(ab_group.rg_props().begin(), ab_group.rg_props().end()); 
-            }
-        }
-        AlleleAbundanceGroup cds(cds_abundances,
-								 cds_gamma_cov,
-								 cds_iterated_exp_count_cov,
-								 cds_count_cov,
-								 cds_fpkm_cov,
-								 max_cds_mass_variance,
-								 rg_props,
-								 paternal_cds_assigned_counts,
-								 maternal_cds_assigned_counts);
-        
-        vector<AlleleAbundanceGroup> cds_by_gene;
-        
-        cluster_transcripts<ConnectByAnnotatedGeneId>(cds,
-                                                      cds_by_gene);
-        
-        foreach(AlleleAbundanceGroup& ab_group, cds_by_gene)
-        {
-            ab_group.locus_tag(locus_tag);
-            set<string> gene_ids = ab_group.gene_id();
-            assert (gene_ids.size() == 1);
-            ab_group.description(*(gene_ids.begin()));
-        }
-        
-        sample.gene_cds = cds_by_gene;
-    }
-	if (perform_tss_analysis)
-    {
-        // Cluster transcripts by start site (TSS)
-        vector<AlleleAbundanceGroup> transcripts_by_tss;
-        
-        ublas::matrix<double> tss_gamma_cov;
-        ublas::matrix<double> tss_count_cov;
-        ublas::matrix<double> tss_iterated_exp_count_cov;
-        ublas::matrix<double> tss_fpkm_cov;
-        vector<Eigen::VectorXd> paternal_tss_assigned_counts;
-		vector<Eigen::VectorXd> maternal_tss_assigned_counts;
-        
-        vector<bool> mask(sample.transcripts.abundances().size(), true);
-        for (size_t i = 0; i < sample.transcripts.abundances().size(); ++i)
-        {
-            if (*(sample.transcripts.abundances()[i]->tss_id().begin()) == "")
-            {
-                mask[i] = false;
-            }
-        }
-        
-        AlleleAbundanceGroup trans_with_tss; 
-        sample.transcripts.filter_group(mask, trans_with_tss);
-        
-        cluster_transcripts<ConnectByAnnotatedTssId>(trans_with_tss,
-                                                     transcripts_by_tss,
-                                                     &tss_gamma_cov,
-                                                     &tss_iterated_exp_count_cov,
-                                                     &tss_count_cov,
-                                                     &tss_fpkm_cov,
-                                                     &paternal_tss_assigned_counts,
-													 &maternal_tss_assigned_counts);
-        
-        
-        foreach(AlleleAbundanceGroup& ab_group, transcripts_by_tss)
-        {
-            ab_group.locus_tag(locus_tag);
-            set<string> tss_ids = ab_group.tss_id();
-            assert (tss_ids.size() == 1);
-            string desc = *(tss_ids.begin()); 
-            assert (desc != "");
-            ab_group.description(*(tss_ids.begin()));
-            
-        }
-        
-        sample.primary_transcripts = transcripts_by_tss;
-        double max_tss_mass_variance = 0.0;
-        
-        // Group TSS clusters by gene
-        vector<shared_ptr<Abundance> > primary_transcript_abundances;
-        set<shared_ptr<ReadGroupProperties const> > rg_props;
-        foreach (AlleleAbundanceGroup& ab_group, sample.primary_transcripts)
-        {
-            primary_transcript_abundances.push_back(shared_ptr<Abundance>(new AlleleAbundanceGroup(ab_group)));
-            max_tss_mass_variance = max(max_tss_mass_variance, ab_group.max_mass_variance());
-            rg_props.insert(ab_group.rg_props().begin(), ab_group.rg_props().end());
-        }
-        
-        AlleleAbundanceGroup primary_transcripts(primary_transcript_abundances,
-												 tss_gamma_cov,
-												 tss_iterated_exp_count_cov,
-												 tss_count_cov,
-												 tss_fpkm_cov,
-												 max_tss_mass_variance,
-												 rg_props,
-												 paternal_tss_assigned_counts,
-												 maternal_tss_assigned_counts);
-        
-        vector<AlleleAbundanceGroup> primary_transcripts_by_gene;
-        
-        cluster_transcripts<ConnectByAnnotatedGeneId>(primary_transcripts,
-                                                      primary_transcripts_by_gene);
-        
-        foreach(AlleleAbundanceGroup& ab_group, primary_transcripts_by_gene)
-        {
-            ab_group.locus_tag(locus_tag);
-            set<string> gene_ids = ab_group.gene_id();
-//            if (gene_ids.size() > 1)
-//            {
-//                foreach (string st, gene_ids)
-//                {
-//                    fprintf(stderr, "%s\n", st.c_str());
-//                }
-//                ab_group.gene_id();
-//            }
-            assert (gene_ids.size() == 1);
-            ab_group.description(*(gene_ids.begin()));
-        }
-        
-        sample.gene_primary_transcripts = primary_transcripts_by_gene;
-    }
-}
-
 struct LocusVarianceInfo
 {
     int factory_id;
@@ -1954,20 +1485,28 @@ vector<LocusVarianceInfo> locus_variance_info_table;
 // transcript, so we can re-fit the variance model.
 FPKMTrackingTable transcript_count_tracking; 
 
-void sample_worker(const RefSequenceTable& rt,
-                   ReplicatedBundleFactory& sample_factory,
-                   shared_ptr<SampleAbundances> abundance,
-                   size_t factory_id,
-                   shared_ptr<TestLauncher> launcher)
+void sample_worker(bool non_empty,
+                        boost::shared_ptr<HitBundle> bundle,
+                        const RefSequenceTable& rt,
+                        ReplicatedBundleFactory& sample_factory,
+                        boost::shared_ptr<SampleAbundances> abundance,
+                        size_t factory_id,
+                        boost::shared_ptr<TestLauncher> launcher,
+                        bool calculate_variance)
 {
 #if ENABLE_THREADS
 	boost::this_thread::at_thread_exit(decr_pool_count);
 #endif
-    
-    HitBundle bundle;
-    bool non_empty = sample_factory.next_bundle(bundle);
-    
-    if (!non_empty || (bias_run && bundle.ref_scaffolds().size() != 1)) // Only learn on single isoforms
+
+    char bundle_label_buf[2048];
+    sprintf(bundle_label_buf,
+            "%s:%d-%d",
+            rt.get_name(bundle->ref_id()),
+            bundle->left(),
+            bundle->right());
+    string locus_tag = bundle_label_buf;
+
+    if (!non_empty || (bias_run && bundle->ref_scaffolds().size() != 1)) // Only learn on single isoforms
     {
 #if !ENABLE_THREADS
         // If Cuffdiff was built without threads, we need to manually invoke 
@@ -1980,15 +1519,7 @@ void sample_worker(const RefSequenceTable& rt,
     	return;
     }
 
-    abundance->cluster_mass = bundle.mass();
-    
-    char bundle_label_buf[2048];
-    sprintf(bundle_label_buf, 
-            "%s:%d-%d", 
-            rt.get_name(bundle.ref_id()),
-            bundle.left(),
-            bundle.right());
-    string locus_tag = bundle_label_buf;
+    abundance->cluster_mass = bundle->mass();
     
     launcher->register_locus(locus_tag);
     
@@ -1997,7 +1528,7 @@ void sample_worker(const RefSequenceTable& rt,
     bool perform_cds_analysis = false;
     bool perform_tss_analysis = false;
 
-    foreach(shared_ptr<Scaffold> s, bundle.ref_scaffolds())
+    BOOST_FOREACH (boost::shared_ptr<Scaffold> s, bundle->ref_scaffolds())
     {
         if (s->annotated_tss_id() != "")
         {
@@ -2009,154 +1540,84 @@ void sample_worker(const RefSequenceTable& rt,
         }
     }
 
-    set<shared_ptr<ReadGroupProperties const> > rg_props;
-    for (size_t i = 0; i < sample_factory.factories().size(); ++i)
+    std::vector<boost::shared_ptr<BundleFactory> > factories = sample_factory.factories();
+    vector<boost::shared_ptr<PrecomputedExpressionBundleFactory> > hit_factories;
+    for (size_t i = 0; i < factories.size(); ++i)
     {
-        shared_ptr<BundleFactory> bf = sample_factory.factories()[i];
-        rg_props.insert(bf->read_group_properties());
+        boost::shared_ptr<BundleFactory> pFac = factories[i];
+        boost::shared_ptr<PrecomputedExpressionBundleFactory> pBundleFac = dynamic_pointer_cast<PrecomputedExpressionBundleFactory> (pFac);
+        if (pBundleFac)
+        {
+            // If we get here, this factory refers to a pre computed expression object.
+            
+            hit_factories.push_back(pBundleFac);
+        }
     }
     
-    sample_abundance_worker(boost::cref(locus_tag),
-                            boost::cref(rg_props),
-                            boost::ref(*abundance),
-                            &bundle,
-                            perform_cds_analysis,
-                            perform_tss_analysis);
-    
-#if ENABLE_THREADS
-    variance_info_lock.lock();
-#endif
-    
-    //fprintf(stderr, "\nTesting in %s (%d total tests)\n", locus_tag.c_str(), total_tests);
-    
-	// Add all the transcripts, CDS groups, TSS groups, and genes to their
-    // respective FPKM tracking table.  Whether this is a time series or an
-    // all pairs comparison, we should be calculating and reporting FPKMs for 
-    // all objects in all samples
-    
-//    ///////////////////////////////////////////////
-//    shared_ptr<MassDispersionModel const> disperser = sample_factory.mass_dispersion_model();
-//    pair<double, double> locus_mv = disperser->get_raw_mean_and_var(locus_tag);
-//    if (locus_mv.first != 0 && locus_mv.second != 0)
-//    {
-//        LocusVarianceInfo info;
-//        info.factory_id = factory_id;
-//        info.count_mean = locus_mv.first;
-//        info.count_empir_var = locus_mv.second;
-//        info.locus_count_fitted_var = disperser->scale_mass_variance(info.count_mean);
-//        
-//        double total_iso_scaled_var = 0.0;
-//        
-//        const AbundanceGroup& ab_group = abundance->transcripts;
-//        info.locus_total_frags = ab_group.total_frags();
-//        info.locus_salient_frags = ab_group.salient_frags();
-//        //double group_counts = ab_group.total_frags();
-//        ublas::matrix<double> cov = ab_group.iterated_count_cov();
-//        if (ab_group.num_fragments())
-//            cov /= ab_group.num_fragments();
-//        
-//        double total_length = 0.0;
-//        for (unsigned i = 0; i < ab_group.abundances().size(); ++ i) 
-//        {
-//            total_length += ab_group.abundances()[i]->effective_length();
-//        }
-//        
-////        if (total_length)
-////        {
-////            for (unsigned i = 0; i < ab_group.abundances().size(); ++ i) 
-////            {
-////                fprintf(stderr, 
-////                        "%lg, %lg, %lg\n", 
-////                        _abundances[i]->gamma(), 
-////                        _abundances[i]->effective_length()/total_length, 
-////                        log2(_abundances[i]->gamma()/(_abundances[i]->effective_length()/total_length)));
-////            }
-////        }
-//        
-//		for (size_t i = 0; i < ab_group.abundances().size(); ++i)
-//		{
-//            
-////            double count_var = cov(i,i);
-////            double max_count_covar = 0.0;
-////            size_t max_covar_idx = 0.0;
-////            for (size_t j = 0; j < cov.size1(); ++j)
-////            {
-////                if (j != i && abs(cov(i,j)) > max_count_covar)
-////                {
-////                    max_count_covar = abs(cov(i,j));
-////                    max_covar_idx = j;
-////                }
-////            }
-//            double count_sharing = 0.0;
-////            if (cov(i,i) != 0 && cov(max_covar_idx,max_covar_idx) != 0)
-////                count_sharing = -1.0 * cov(i,max_covar_idx) / sqrt(cov(i,i) * cov(max_covar_idx,max_covar_idx));
-//            
-//            
-//            if (total_length)
-//                count_sharing = log2(ab_group.abundances()[i]->gamma()/(ab_group.abundances()[i]->effective_length()/total_length));
-//            
-//            shared_ptr<Abundance> ab = ab_group.abundances()[i];
-//            double scaled_var = disperser->scale_mass_variance(ab->num_fragments());
-//			total_iso_scaled_var += scaled_var;
-//            info.gamma.push_back(ab->gamma());
-//            info.gamma_var.push_back(ab_group.gamma_cov()(i,i));
-//            info.count_sharing.push_back(count_sharing);
-//            info.transcript_ids.push_back(ab->description());
-//		}
-//
-//        
-//        const ublas::matrix<double>& gamma_cov = ab_group.gamma_cov();
-//        info.bayes_gamma_trace = 0;
-//        info.empir_gamma_trace = 0;
-//        for (size_t i = 0; i < ab_group.abundances().size(); ++i)
-//        {
-//            //for (size_t j = 0; j < ab_group.abundances().size(); ++j)
-//            {
-//                info.bayes_gamma_trace += gamma_cov(i,i);
-//            }
-//        }
-//
-//        
-//        info.cross_replicate_js = 30;
-//        //assert (abundance->cluster_mass == locus_mv.first);
-//        //assert (total_iso_scaled_var >= info.count_mean);
-//        
-//        info.isoform_fitted_var_sum = total_iso_scaled_var;
-//        info.num_transcripts = ab_group.abundances().size();
-////        info.bayes_gamma_trace = 0;
-////        info.empir_gamma_trace = 0;
-//        locus_variance_info_table.push_back(info);
-//    }
-    
-#if ENABLE_THREADS
-    variance_info_lock.unlock();
-#endif
-    
+    if (hit_factories.size() == factories.size())
+    {
+        merge_precomputed_expression_worker(boost::cref(locus_tag),
+                                            hit_factories,
+                                            boost::ref(*abundance),
+                                            bundle,
+                                            perform_cds_analysis,
+                                            perform_tss_analysis,
+                                            calculate_variance);
+    }
+    else if (hit_factories.empty())
+    {
+        set<boost::shared_ptr<ReadGroupProperties const> > rg_props;
+        for (size_t i = 0; i < sample_factory.factories().size(); ++i)
+        {
+            boost::shared_ptr<BundleFactory> bf = sample_factory.factories()[i];
+            rg_props.insert(bf->read_group_properties());
+        }
+        
+        sample_abundance_worker(boost::cref(locus_tag),
+                                boost::cref(rg_props),
+                                boost::ref(*abundance),
+                                bundle,
+                                perform_cds_analysis,
+                                perform_tss_analysis,
+                                calculate_variance);
+    }
+    else
+    {
+        fprintf (stderr, "Error: mixing pre-computed input with SAM/BAM files not yet supported!\n");
+        exit(1);
+    }
     ///////////////////////////////////////////////
     
     
-    foreach(shared_ptr<Scaffold> ref_scaff,  bundle.ref_scaffolds())
+    BOOST_FOREACH(boost::shared_ptr<Scaffold> ref_scaff,  bundle->ref_scaffolds())
     {
         ref_scaff->clear_hits();
     }
     
     launcher->abundance_avail(locus_tag, abundance, factory_id);
-    launcher->test_finished_loci();
+    vector<vector<boost::shared_ptr<SampleAbundances> > > to_be_tested = launcher->test_finished_loci();
     
+    for (size_t i = 0; i < to_be_tested.size(); ++i)
+        launcher->perform_testing(to_be_tested[i]);
+
 #if !ENABLE_THREADS
-    // If Cuffdiff was built without threads, we need to manually invoke 
+    // If Cuffdiff was built without threads, we need to manually invoke
     // the testing functor, which will check to see if all the workers
     // are done, and if so, perform the cross sample testing.
     //launcher->test_finished_loci();
 #endif
+
 }
 
 //nimrod
-void allele_sample_worker(const RefSequenceTable& rt,
-                   ReplicatedBundleFactory& sample_factory,
-                   shared_ptr<SampleAlleleAbundances> abundance,
-                   size_t factory_id,
-                   shared_ptr<AlleleTestLauncher> launcher)
+void allele_sample_worker(bool non_empty,
+                          boost::shared_ptr<HitBundle> bundle,
+                          const RefSequenceTable& rt,
+                          ReplicatedBundleFactory& sample_factory,
+                          boost::shared_ptr<SampleAlleleAbundances> abundance,
+                          size_t factory_id,
+                          boost::shared_ptr<AlleleTestLauncher> launcher,
+                          bool calculate_variance)
 {
 #if ENABLE_THREADS
 	boost::this_thread::at_thread_exit(decr_pool_count);
@@ -2177,7 +1638,7 @@ void allele_sample_worker(const RefSequenceTable& rt,
         // the testing functor, which will check to see if all the workers
         // are done, and if so, perform the cross sample testing.
         launcher->abundance_avail(locus_tag, abundance, factory_id);
-        vector<vector<boost::shared_ptr<SampleAbundances> > > to_be_tested = launcher->test_finished_loci();
+        vector<vector<boost::shared_ptr<SampleAlleleAbundances> > > to_be_tested = launcher->test_finished_loci();
         launcher->perform_testing(to_be_tested);
         //launcher();
 #endif
@@ -2219,122 +1680,40 @@ void allele_sample_worker(const RefSequenceTable& rt,
         }
     }
     
-    sample_abundance_worker(boost::cref(locus_tag),
-                            boost::cref(rg_props),
-                            boost::ref(*abundance),
-                            &bundle,
-                            perform_cds_analysis,
-                            perform_tss_analysis);
-	
-#if ENABLE_THREADS
-    variance_info_lock.lock();
-#endif
-    
-    //fprintf(stderr, "\nTesting in %s (%d total tests)\n", locus_tag.c_str(), total_tests);
-    
-	// Add all the transcripts, CDS groups, TSS groups, and genes to their
-    // respective FPKM tracking table.  Whether this is a time series or an
-    // all pairs comparison, we should be calculating and reporting FPKMs for 
-    // all objects in all samples
-    
-//    ///////////////////////////////////////////////
-//    shared_ptr<MassDispersionModel const> disperser = sample_factory.mass_dispersion_model();
-//    pair<double, double> locus_mv = disperser->get_raw_mean_and_var(locus_tag);
-//    if (locus_mv.first != 0 && locus_mv.second != 0)
-//    {
-//        LocusVarianceInfo info;
-//        info.factory_id = factory_id;
-//        info.count_mean = locus_mv.first;
-//        info.count_empir_var = locus_mv.second;
-//        info.locus_count_fitted_var = disperser->scale_mass_variance(info.count_mean);
-//        
-//        double total_iso_scaled_var = 0.0;
-//        
-//        const AbundanceGroup& ab_group = abundance->transcripts;
-//        info.locus_total_frags = ab_group.total_frags();
-//        info.locus_salient_frags = ab_group.salient_frags();
-//        //double group_counts = ab_group.total_frags();
-//        ublas::matrix<double> cov = ab_group.iterated_count_cov();
-//        if (ab_group.num_fragments())
-//            cov /= ab_group.num_fragments();
-//        
-//        double total_length = 0.0;
-//        for (unsigned i = 0; i < ab_group.abundances().size(); ++ i) 
-//        {
-//            total_length += ab_group.abundances()[i]->effective_length();
-//        }
-//        
-////        if (total_length)
-////        {
-////            for (unsigned i = 0; i < ab_group.abundances().size(); ++ i) 
-////            {
-////                fprintf(stderr, 
-////                        "%lg, %lg, %lg\n", 
-////                        _abundances[i]->gamma(), 
-////                        _abundances[i]->effective_length()/total_length, 
-////                        log2(_abundances[i]->gamma()/(_abundances[i]->effective_length()/total_length)));
-////            }
-////        }
-//        
-//		for (size_t i = 0; i < ab_group.abundances().size(); ++i)
-//		{
-//            
-////            double count_var = cov(i,i);
-////            double max_count_covar = 0.0;
-////            size_t max_covar_idx = 0.0;
-////            for (size_t j = 0; j < cov.size1(); ++j)
-////            {
-////                if (j != i && abs(cov(i,j)) > max_count_covar)
-////                {
-////                    max_count_covar = abs(cov(i,j));
-////                    max_covar_idx = j;
-////                }
-////            }
-//            double count_sharing = 0.0;
-////            if (cov(i,i) != 0 && cov(max_covar_idx,max_covar_idx) != 0)
-////                count_sharing = -1.0 * cov(i,max_covar_idx) / sqrt(cov(i,i) * cov(max_covar_idx,max_covar_idx));
-//            
-//            
-//            if (total_length)
-//                count_sharing = log2(ab_group.abundances()[i]->gamma()/(ab_group.abundances()[i]->effective_length()/total_length));
-//            
-//            shared_ptr<Abundance> ab = ab_group.abundances()[i];
-//            double scaled_var = disperser->scale_mass_variance(ab->num_fragments());
-//			total_iso_scaled_var += scaled_var;
-//            info.gamma.push_back(ab->gamma());
-//            info.gamma_var.push_back(ab_group.gamma_cov()(i,i));
-//            info.count_sharing.push_back(count_sharing);
-//            info.transcript_ids.push_back(ab->description());
-//		}
-//
-//        
-//        const ublas::matrix<double>& gamma_cov = ab_group.gamma_cov();
-//        info.bayes_gamma_trace = 0;
-//        info.empir_gamma_trace = 0;
-//        for (size_t i = 0; i < ab_group.abundances().size(); ++i)
-//        {
-//            //for (size_t j = 0; j < ab_group.abundances().size(); ++j)
-//            {
-//                info.bayes_gamma_trace += gamma_cov(i,i);
-//            }
-//        }
-//
-//        
-//        info.cross_replicate_js = 30;
-//        //assert (abundance->cluster_mass == locus_mv.first);
-//        //assert (total_iso_scaled_var >= info.count_mean);
-//        
-//        info.isoform_fitted_var_sum = total_iso_scaled_var;
-//        info.num_transcripts = ab_group.abundances().size();
-////        info.bayes_gamma_trace = 0;
-////        info.empir_gamma_trace = 0;
-//        locus_variance_info_table.push_back(info);
-//    }
-    
-#if ENABLE_THREADS
-    variance_info_lock.unlock();
-#endif
-    
+    if (hit_factories.size() == factories.size())
+    {
+        fprintf(stderr, "Error: precomputed input not supported in allele mode\n");
+        exit(1);
+        //merge_precomputed_expression_worker(boost::cref(locus_tag),
+        //                                    hit_factories,
+        //                                    boost::ref(*abundance),
+        //                                    bundle,
+        //                                    perform_cds_analysis,
+        //                                    perform_tss_analysis,
+        //                                    calculate_variance);
+    }
+    else if (hit_factories.empty())
+    {
+        set<boost::shared_ptr<ReadGroupProperties const> > rg_props;
+        for (size_t i = 0; i < sample_factory.factories().size(); ++i)
+        {
+            boost::shared_ptr<BundleFactory> bf = sample_factory.factories()[i];
+            rg_props.insert(bf->read_group_properties());
+        }
+        
+        sample_abundance_worker(boost::cref(locus_tag),
+                                boost::cref(rg_props),
+                                boost::ref(*abundance),
+                                bundle,
+                                perform_cds_analysis,
+                                perform_tss_analysis,
+                                calculate_variance);
+    }
+    else
+    {
+        fprintf (stderr, "Error: mixing pre-computed input with SAM/BAM files not yet supported!\n");
+        exit(1);
+    }
     ///////////////////////////////////////////////
     
     
@@ -2344,7 +1723,7 @@ void allele_sample_worker(const RefSequenceTable& rt,
     }
     
     launcher->abundance_avail(locus_tag, abundance, factory_id);
-    launcher->test_finished_loci();
+    vector<vector<boost::shared_ptr<SampleAlleleAbundances> > > to_be_tested = launcher->test_finished_loci();
     
     for (size_t i = 0; i < to_be_tested.size(); ++i)
         launcher->perform_testing(to_be_tested[i]);
@@ -2355,7 +1734,7 @@ void allele_sample_worker(const RefSequenceTable& rt,
     // are done, and if so, perform the cross sample testing.
     //launcher->test_finished_loci();
 #endif
-
+   
 }
 
 void dump_locus_variance_info(const string& filename)
@@ -2458,21 +1837,6 @@ void filter_group_for_js_testing(vector<vector<AlleleAbundanceGroup> >& source_g
     }
 }
 
-bool group_has_record_above_thresh(const AbundanceGroup& ab_group)
-{
-    FPKMTrackingTable::iterator itr = fpkm_tracking.find(locus_desc);
-    if (itr == fpkm_tracking.end())
-        return;
-    
-    for (size_t i = 0; i < itr->second.fpkm_series.size(); ++i)
-    {
-        vector<double>& fpkm_samples = itr->second.fpkm_series[i].fpkm_samples;
-        fpkm_samples.clear();
-        std::vector<double>().swap(fpkm_samples);
-        //itr->second.fpkm_series[i].fpkm_samples.swap(vector<double>(itr->second.fpkm_series[i].fpkm_samples));
-    }
-}
-
 bool group_has_record_above_thresh_paternal(const AlleleAbundanceGroup& ab_group)
 {
     for (size_t ab_idx = 0; ab_idx < ab_group.abundances().size(); ++ab_idx)
@@ -2546,30 +1910,6 @@ bool is_badly_fit_maternal(const Abundance& ab)
     return false;
 }
 
-bool group_has_record_badly_fit(const AbundanceGroup& ab_group)
-{
-    for (size_t ab_idx = 0; ab_idx < ab_group.abundances().size(); ++ab_idx)
-    {
-        const Abundance& abundance = sample->cds[k];
-        const string& desc = abundance.description();
-        clear_samples_from_fpkm_tracking_table(desc, tracking.cds_fpkm_tracking);
-    }
-    
-    for (size_t k = 0; k < sample->primary_transcripts.size(); ++k)
-    {
-        const Abundance& abundance = sample->primary_transcripts[k];
-        const string& desc = abundance.description();
-        clear_samples_from_fpkm_tracking_table(desc, tracking.tss_group_fpkm_tracking);
-    }
-
-    for (size_t k = 0; k < sample->genes.size(); ++k)
-    {
-        const Abundance& abundance = sample->genes[k];
-        const string& desc = abundance.description();
-        clear_samples_from_fpkm_tracking_table(desc, tracking.gene_fpkm_tracking);
-    }
-}
-
 bool group_has_paternal_record_badly_fit(const AlleleAbundanceGroup& ab_group)
 {
     for (size_t ab_idx = 0; ab_idx < ab_group.abundances().size(); ++ab_idx)
@@ -2596,6 +1936,55 @@ bool group_has_maternal_record_badly_fit(const AlleleAbundanceGroup& ab_group)
         }
     }
     return false;
+}
+
+// The two functions below just clear the FPKM samples and other data used to estimate
+// the FPKM distributions during testing.  Once testing for a locus is complete,
+// we can throw that stuff out.  We do so to save memory over the run.
+void clear_samples_from_fpkm_tracking_table(const string& locus_desc, FPKMTrackingTable& fpkm_tracking)
+{
+    FPKMTrackingTable::iterator itr = fpkm_tracking.find(locus_desc);
+    if (itr == fpkm_tracking.end())
+        return;
+    
+    for (size_t i = 0; i < itr->second.fpkm_series.size(); ++i)
+    {
+        vector<double>& fpkm_samples = itr->second.fpkm_series[i].fpkm_samples;
+        fpkm_samples.clear();
+        std::vector<double>().swap(fpkm_samples);
+        //itr->second.fpkm_series[i].fpkm_samples.swap(vector<double>(itr->second.fpkm_series[i].fpkm_samples));
+    }
+}
+
+void clear_samples_from_tracking_table(boost::shared_ptr<SampleAbundances> sample, Tracking& tracking)
+{
+    for (size_t k = 0; k < sample->transcripts.abundances().size(); ++k)
+    {
+        const Abundance& abundance = *(sample->transcripts.abundances()[k]);
+        const string& desc = abundance.description();
+        clear_samples_from_fpkm_tracking_table(desc, tracking.isoform_fpkm_tracking);
+    }
+
+    for (size_t k = 0; k < sample->cds.size(); ++k)
+    {
+        const Abundance& abundance = sample->cds[k];
+        const string& desc = abundance.description();
+        clear_samples_from_fpkm_tracking_table(desc, tracking.cds_fpkm_tracking);
+    }
+    
+    for (size_t k = 0; k < sample->primary_transcripts.size(); ++k)
+    {
+        const Abundance& abundance = sample->primary_transcripts[k];
+        const string& desc = abundance.description();
+        clear_samples_from_fpkm_tracking_table(desc, tracking.tss_group_fpkm_tracking);
+    }
+
+    for (size_t k = 0; k < sample->genes.size(); ++k)
+    {
+        const Abundance& abundance = sample->genes[k];
+        const string& desc = abundance.description();
+        clear_samples_from_fpkm_tracking_table(desc, tracking.gene_fpkm_tracking);
+    }
 }
 
 int total_tests = 0;
@@ -2659,38 +2048,29 @@ void test_differential(const string& locus_tag,
             bool enough_reads = false;
             if (curr_abundance.num_fragments() && curr_abundance.effective_length())
             {
-                const Abundance& curr_abundance = *(samples[j]->transcripts.abundances()[k]);
-                const Abundance& prev_abundance = *(samples[i]->transcripts.abundances()[k]);
-                const string& desc = curr_abundance.description();
-                FPKMTrackingTable::iterator itr = tracking.isoform_fpkm_tracking.find(desc);
-                assert (itr != tracking.isoform_fpkm_tracking.end());
+                double frags_per_kb = curr_abundance.num_fragments() / (curr_abundance.effective_length() / 1000.0);
+                if (frags_per_kb >= min_read_count)
+                    enough_reads = true;
+            }
+            if (prev_abundance.num_fragments() && prev_abundance.effective_length())
+            {
+                double frags_per_kb = prev_abundance.num_fragments() / (prev_abundance.effective_length() / 1000.0);
+                if (frags_per_kb >= min_read_count)
+                    enough_reads = true;
+            }
                 
-                bool enough_reads = false;
-                if (curr_abundance.num_fragments() && curr_abundance.effective_length())
-                {
-                    double frags_per_kb = curr_abundance.num_fragments() / (curr_abundance.effective_length() / 1000.0);
-                    if (frags_per_kb >= min_read_count)
-                        enough_reads = true;
-                }
-                if (prev_abundance.num_fragments() && prev_abundance.effective_length())
-                {
-                    double frags_per_kb = prev_abundance.num_fragments() / (prev_abundance.effective_length() / 1000.0);
-                    if (frags_per_kb >= min_read_count)
-                        enough_reads = true;
-                }
-                
-                if (enough_reads)
-                {
-                    if (is_badly_fit(curr_abundance) || is_badly_fit(prev_abundance))
-                        enough_reads = false;
-                }
+//                if (enough_reads)
+//                {
+//                    if (is_badly_fit(curr_abundance) || is_badly_fit(prev_abundance))
+//                        enough_reads = false;
+//                }
 
-                SampleDifference test;
-				test = get_de_tests(desc,
-                                      itr->second.fpkm_series[j], 
-                                      itr->second.fpkm_series[i],
-                                      //tests.isoform_de_tests[i][j],
-                                      enough_reads);
+            SampleDifference test;
+            test = get_de_tests(desc,
+                                itr->second.fpkm_series[j], 
+                                itr->second.fpkm_series[i],
+                                //tests.isoform_de_tests[i][j],
+                                enough_reads);
 #if ENABLE_THREADS
             test_storage_lock.lock();
 #endif
@@ -3007,10 +2387,10 @@ void test_differential(const string& locus_tag,
 }
 
 void test_differential(const string& locus_tag,
-					   const vector<shared_ptr<SampleAlleleAbundances> >& samples,
-					   AlleleTests& tests,
-					   Tracking& tracking,
-					   bool samples_are_time_series)
+                       const vector<shared_ptr<SampleAlleleAbundances> >& samples,
+                       AlleleTests& tests,
+                       Tracking& tracking,
+                       bool samples_are_time_series)
 {
 	if (samples.empty())
 		return;
@@ -3152,7 +2532,7 @@ void test_differential(const string& locus_tag,
 					maternalMaternalInserted = tests.maternal_maternal_isoform_de_tests[i][j].insert(make_pair("CurrentMaternal:PreviousMaternal;"+desc,
 																							 maternalMaternalTest)); 
 					
-					shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+					boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 					
 					meta_data->gene_ids = curr_abundance.gene_id();
 					meta_data->gene_names = curr_abundance.gene_name();
@@ -3267,7 +2647,7 @@ void test_differential(const string& locus_tag,
 					maternalMaternalInserted = tests.maternal_maternal_cds_de_tests[i][j].insert(make_pair("CurrentMaternal:PreviousMaternal;"+desc,
 																						 maternalMaternalTest)); 
 					
-					shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+					boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 					
 					meta_data->gene_ids = curr_abundance.gene_id();
 					meta_data->gene_names = curr_abundance.gene_name();
@@ -3383,7 +2763,7 @@ void test_differential(const string& locus_tag,
 					maternalMaternalInserted = tests.maternal_maternal_tss_group_de_tests[i][j].insert(make_pair("CurrentMaternal:PreviousMaternal;"+desc,
 																						 maternalMaternalTest)); 
 					
-					shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+					boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 					
 					meta_data->gene_ids = curr_abundance.gene_id();
 					meta_data->gene_names = curr_abundance.gene_name();
@@ -3476,7 +2856,7 @@ void test_differential(const string& locus_tag,
 					maternalMaternalInserted = tests.maternal_maternal_gene_de_tests[i][j].insert(make_pair("CurrentMaternal:PreviousMaternal;"+desc,
 																						  maternalMaternalTest)); 
 					
-					shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+					boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 					
 					meta_data->gene_ids = curr_abundance.gene_id();
 					meta_data->gene_names = curr_abundance.gene_name();
@@ -3560,7 +2940,7 @@ void test_differential(const string& locus_tag,
 					
 					// The filtered group might be empty, so let's grab metadata from
 					// the unfiltered group
-					shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+					boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 					
 					meta_data->gene_ids = samples[i]->gene_primary_transcripts[k].gene_id();
 					meta_data->gene_names = samples[i]->gene_primary_transcripts[k].gene_name();
@@ -3656,7 +3036,7 @@ void test_differential(const string& locus_tag,
 					
 					// The filtered group might be empty, so let's grab metadata from
 					// the unfiltered group
-					shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+					boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 					
 					meta_data->gene_ids = samples[i]->gene_cds[k].gene_id();
 					meta_data->gene_names = samples[i]->gene_cds[k].gene_name();
@@ -3749,7 +3129,7 @@ void test_differential(const string& locus_tag,
 														true,true,(curr_abundance.is_allele_informative() && prev_abundance.is_allele_informative()));
 					// The filtered group might be empty, so let's grab metadata from
 					// the unfiltered group
-					shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+					boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 					
 					meta_data->gene_ids = samples[i]->primary_transcripts[k].gene_id();
 					meta_data->gene_names = samples[i]->primary_transcripts[k].gene_name();
@@ -3840,7 +3220,7 @@ void test_differential(const string& locus_tag,
 			paternalMaternalInserted = tests.parental_isoform_de_tests[0][0].insert(make_pair("Paternal:Maternal;"+desc,
 																					 paternalMaternalTest)); 
 			
-			shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+			boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 			
 			meta_data->gene_ids = curr_abundance.gene_id();
 			meta_data->gene_names = curr_abundance.gene_name();
@@ -3899,7 +3279,7 @@ void test_differential(const string& locus_tag,
 			pair<SampleDiffs::iterator, bool> paternalMaternalInserted; 
 			paternalMaternalInserted = tests.parental_cds_de_tests[0][0].insert(make_pair("Paternal:Maternal;"+desc,
 																				 paternalMaternalTest)); 
-			shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+			boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 			
 			meta_data->gene_ids = curr_abundance.gene_id();
 			meta_data->gene_names = curr_abundance.gene_name();
@@ -3961,7 +3341,7 @@ void test_differential(const string& locus_tag,
 			paternalMaternalInserted = tests.parental_tss_group_de_tests[0][0].insert(make_pair("Paternal:Maternal;"+desc,
 																				 paternalMaternalTest)); 
 			
-			shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+			boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 			
 			meta_data->gene_ids = curr_abundance.gene_id();
 			meta_data->gene_names = curr_abundance.gene_name();
@@ -4010,7 +3390,7 @@ void test_differential(const string& locus_tag,
 			paternalMaternalInserted = tests.parental_gene_de_tests[0][0].insert(make_pair("Paternal:Maternal;"+desc,
 																				  paternalMaternalTest)); 
 			
-			shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+			boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 			
 			meta_data->gene_ids = curr_abundance.gene_id();
 			meta_data->gene_names = curr_abundance.gene_name();
@@ -4054,7 +3434,7 @@ void test_differential(const string& locus_tag,
 				
 				// The filtered group might be empty, so let's grab metadata from
 				// the unfiltered group
-				shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+				boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 				
 				meta_data->gene_ids = samples[0]->gene_primary_transcripts[k].gene_id();
 				meta_data->gene_names = samples[0]->gene_primary_transcripts[k].gene_name();
@@ -4102,7 +3482,7 @@ void test_differential(const string& locus_tag,
 				
 				// The filtered group might be empty, so let's grab metadata from
 				// the unfiltered group
-				shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+				boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 				
 				meta_data->gene_ids = samples[0]->gene_cds[k].gene_id();
 				meta_data->gene_names = samples[0]->gene_cds[k].gene_name();
@@ -4147,7 +3527,7 @@ void test_differential(const string& locus_tag,
 				
 				// The filtered group might be empty, so let's grab metadata from
 				// the unfiltered group
-				shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
+				boost::shared_ptr<SampleDifferenceMetaData> meta_data = get_metadata(desc);
 				
 				meta_data->gene_ids = samples[0]->primary_transcripts[k].gene_id();
 				meta_data->gene_names = samples[0]->primary_transcripts[k].gene_name();
@@ -4171,5 +3551,109 @@ void test_differential(const string& locus_tag,
 			}
 		}
 	}
+}
+
+void print_checked_params_table(const vector<boost::shared_ptr<ReadGroupProperties> >& all_read_groups)
+{
+    string param_check_error_out_filename = output_dir + "/checked_params.txt";
+    FILE* param_check_error_out_file = fopen(param_check_error_out_filename.c_str(), "w");
+    
+    fprintf(param_check_error_out_file, "file\tdefault frag length mean\tdefault frag length std dev\tbias correction\tbias mode\tmultiread correction\tmax-mle-iterations\tmin-mle-accuracy\tmax-bundle-frags\tmax-frag-multihits\tno-effective-length-correction\tno-length-correction\n");
+    for (size_t i = 0; i < all_read_groups.size(); ++i)
+    {
+        const CheckedParameters& cp_i = all_read_groups[i]->checked_parameters();
+        fprintf(param_check_error_out_file, "%s\t", all_read_groups[i]->file_path().c_str());
+        fprintf(param_check_error_out_file, "%lg\t", cp_i.frag_len_mean);
+        fprintf(param_check_error_out_file, "%lg\t", cp_i.frag_len_std_dev);
+        fprintf(param_check_error_out_file, "%s\t", cp_i.corr_bias ? "yes" : "no");
+        fprintf(param_check_error_out_file, "%d\t", cp_i.frag_bias_mode);
+        fprintf(param_check_error_out_file, "%s\t", cp_i.corr_multireads ? "yes" : "no");
+        fprintf(param_check_error_out_file, "%lg\t", cp_i.max_mle_iterations);
+        fprintf(param_check_error_out_file, "%lg\t", cp_i.min_mle_accuracy);
+        fprintf(param_check_error_out_file, "%lg\t", cp_i.max_bundle_frags);
+        fprintf(param_check_error_out_file, "%lg\t", cp_i.max_frags_multihits);
+        fprintf(param_check_error_out_file, "%s\t", cp_i.no_effective_length_correction ? "yes" : "no");
+        fprintf(param_check_error_out_file, "%s\t", cp_i.no_length_correction? "yes" : "no");
+        fprintf(param_check_error_out_file, "\n");
+    }
+    fclose(param_check_error_out_file);
+
+}
+
+void validate_cross_sample_parameters(const vector<boost::shared_ptr<ReadGroupProperties> >& all_read_groups)
+{
+    bool dump_params = false;
+    for (size_t i = 1; i < all_read_groups.size(); ++i)
+    {
+        const CheckedParameters& cp_i = all_read_groups[i - 1]->checked_parameters();
+        const CheckedParameters& cp_j = all_read_groups[i]->checked_parameters();
+        
+        if (cp_i.ref_gtf_crc != cp_j.ref_gtf_crc)
+        {
+            fprintf(stderr, "Error reference gene annotation differs between samples!\n");
+            fprintf(stderr, "\t%s\t%s:\t%u!\n", all_read_groups[i - 1]->file_path().c_str(), cp_i.ref_gtf_file_path.c_str(), cp_i.ref_gtf_crc);
+            fprintf(stderr, "\t%s\t%s:\t%u!\n", all_read_groups[i]->file_path().c_str(), cp_j.ref_gtf_file_path.c_str(), cp_j.ref_gtf_crc);
+            exit(1);
+        }
+        
+        if (cp_i != cp_j)
+        {
+            dump_params = true;
+            fprintf(stderr, "Warning: quantification parameters differ between CXB files!\n\tSee %s/checked_params.txt for more info\n", output_dir.c_str());
+            break;
+//            fprintf(stderr, "CXB files:\n");
+//            fprintf(stderr, "%s:\n", all_read_groups[i - 1]->file_path().c_str());
+//            fprintf(stderr, "\tdefault-frag-length-mean:\t%lg\n", cp_i.frag_len_mean);
+//            fprintf(stderr, "\tdefault-frag-length-std-dev:\t%lg\n", cp_i.frag_len_std_dev);
+//            fprintf(stderr, "\tbias correction:\t%s\n", cp_i.corr_bias ? "yes" : "no");
+//            fprintf(stderr, "\tbias mode:\t%d\n", cp_i.frag_bias_mode);
+//            fprintf(stderr, "\tmultiread correction:\t%s\n", cp_i.corr_multireads ? "yes" : "no");
+//            fprintf(stderr, "\tmax-mle-iterations:\t%lg\n", cp_i.max_mle_iterations);
+//            fprintf(stderr, "\tmin-mle-accuracy:\t%lg\n", cp_i.min_mle_accuracy);
+//            fprintf(stderr, "\tmax-bundle-frags:\t%lg\n", cp_i.max_bundle_frags);
+//            fprintf(stderr, "\tmax-frag-multihits:\t%lg\n", cp_i.max_frags_multihits);
+//            fprintf(stderr, "\tno-effective-length-correction:\t%s\n", cp_i.no_effective_length_correction ? "yes" : "no");
+//            fprintf(stderr, "\tno-length-correction:\t%s\n", cp_i.no_length_correction? "yes" : "no");
+//            
+//            fprintf(stderr, "%s\n", all_read_groups[i]->file_path().c_str());
+//            fprintf(stderr, "\tdefault-frag-length-mean:\t%lg\n", cp_j.frag_len_mean);
+//            fprintf(stderr, "\tdefault-frag-length-std-dev:\t%lg\n", cp_j.frag_len_std_dev);
+//            // TODO: add CRCs for reference GTF, mask file, norm standards file if using.
+//            fprintf(stderr, "\tbias correction:\t%s\n", cp_j.corr_bias ? "yes" : "no");
+//            fprintf(stderr, "\tbias mode:\t%d\n", cp_j.frag_bias_mode);
+//            fprintf(stderr, "\tmultiread correction:\t%s\n", cp_j.corr_multireads ? "yes" : "no");
+//            fprintf(stderr, "\tmax-mle-iterations:\t%lg\n", cp_j.max_mle_iterations);
+//            fprintf(stderr, "\tmin-mle-accuracy:\t%lg\n", cp_j.min_mle_accuracy);
+//            fprintf(stderr, "\tmax-bundle-frags:\t%lg\n", cp_j.max_bundle_frags);
+//            fprintf(stderr, "\tmax-frag-multihits:\t%lg\n", cp_j.max_frags_multihits);
+//            fprintf(stderr, "\tno-effective-length-correction:\t%s\n", cp_j.no_effective_length_correction ? "yes" : "no");
+//            fprintf(stderr, "\tno-length-correction:\t%s\n", cp_j.no_length_correction? "yes" : "no");
+            
+        }
+        
+    }
+    if (dump_params)
+        print_checked_params_table(all_read_groups);
+}
+
+void TrackingDataWriter::perform_testing(vector<boost::shared_ptr<SampleAbundances> > abundances)
+{
+#if ENABLE_THREADS
+    _launcher_lock.lock();
+    test_storage_lock.lock();
+#endif
+    if (headers_written == false)
+    {
+        write_header_output();
+        headers_written = true;
+    }
+    
+    write_output(abundances);
+    //test_differential(abundances.front()->locus_tag, abundances, _contrasts, *_tests, *_tracking);
+#if ENABLE_THREADS
+    test_storage_lock.unlock();
+    _launcher_lock.unlock();
+#endif
+
 }
 

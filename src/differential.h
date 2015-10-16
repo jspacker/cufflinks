@@ -146,84 +146,7 @@ struct AlleleTests
 	vector<vector<SampleDiffs> > paternal_paternal_diff_cds_tests,paternal_maternal_diff_cds_tests,maternal_paternal_diff_cds_tests,maternal_maternal_diff_cds_tests,parental_diff_cds_tests; // to be performed on the cds groups of a single gene
 };
 
-struct FPKMContext
-{
-	FPKMContext(double cm, double cv, double cuv, double cdv, const CountPerReplicateTable& cpr, double r, const FPKMPerReplicateTable& fpr, double v, AbundanceStatus s, const StatusPerReplicateTable& spr)
-		: count_mean(cm), count_var(cv), count_uncertainty_var(cuv), count_dispersion_var(cdv), count_per_rep(cpr), fpkm_per_rep(fpr), FPKM(r), FPKM_variance(v), status(s), status_per_rep(spr) {}
-	double count_mean;
-    double count_var;
-    double count_uncertainty_var;
-    double count_dispersion_var;
-    CountPerReplicateTable count_per_rep;
-    FPKMPerReplicateTable fpkm_per_rep;
-    StatusPerReplicateTable status_per_rep;
-	double FPKM;
-	double FPKM_variance;
-    AbundanceStatus status;
-};
-
-struct FPKMTracking
-{
-	string locus_tag;
-	char classcode;
-	set<string> tss_ids; // for individual isoforms only
-    set<string> gene_ids;
-	set<string> gene_names;
-	set<string> protein_ids;
-	string description; // isoforms or tss groups (e.g.) involved in this test
-	string ref_match;
-    int length;
-	int paternal_length;
-	int maternal_length;
-	TestStatus test_status;
-	
-	vector<FPKMContext> fpkm_series;
-	vector<FPKMContext> paternal_fpkm_series;
-	vector<FPKMContext> maternal_fpkm_series;
-};
-
 typedef map<string,  FPKMTracking> FPKMTrackingTable;
-
-struct Tracking
-{
-	FPKMTrackingTable isoform_fpkm_tracking;
-	FPKMTrackingTable tss_group_fpkm_tracking;
-	FPKMTrackingTable gene_fpkm_tracking;
-	FPKMTrackingTable cds_fpkm_tracking;
-    
-    void clear() 
-    {
-        isoform_fpkm_tracking.clear();
-        tss_group_fpkm_tracking.clear();
-        gene_fpkm_tracking.clear();
-        cds_fpkm_tracking.clear();
-    }
-};
-
-struct SampleAbundances
-{
-    string locus_tag;
-	AbundanceGroup transcripts;
-	vector<AbundanceGroup> primary_transcripts;
-	vector<AbundanceGroup> gene_primary_transcripts;
-	vector<AbundanceGroup> cds;
-	vector<AbundanceGroup> gene_cds;
-	vector<AbundanceGroup> genes;
-	double cluster_mass;
-};
-
-//nimrod
-struct SampleAlleleAbundances
-{
-    string locus_tag;
-	AlleleAbundanceGroup transcripts;
-	vector<AlleleAbundanceGroup> primary_transcripts;
-	vector<AlleleAbundanceGroup> gene_primary_transcripts;
-	vector<AlleleAbundanceGroup> cds;
-	vector<AlleleAbundanceGroup> gene_cds;
-	vector<AlleleAbundanceGroup> genes;
-	double cluster_mass;
-};
 
 #if ENABLE_THREADS
     extern boost::mutex _launcher_lock;
@@ -1052,16 +975,18 @@ private:
     
 public:
     AlleleTestLauncher(int num_samples,
-					   AlleleTests* tests,
-					   Tracking* tracking,
-					   bool ts,
-					   ProgressBar* p_bar) 
+                       AlleleTests* tests,
+                       Tracking* tracking,
+                       bool ts,
+                       ProgressBar* p_bar,
+                       bool track_only = false) 
     :
     _orig_workers(num_samples),
     _tests(tests),
     _tracking(tracking),
-	_samples_are_time_series(ts),
-    _p_bar(p_bar)
+    _samples_are_time_series(ts),
+    _p_bar(p_bar),
+    _track_only(track_only)
     {
     }
     
@@ -1069,17 +994,17 @@ public:
     
     void register_locus(const string& locus_id);
     void abundance_avail(const string& locus_id, 
-                         shared_ptr<SampleAlleleAbundances> ab, 
+                         boost::shared_ptr<SampleAlleleAbundances> ab, 
                          size_t factory_id);
-    void test_finished_loci();
-    void perform_testing(vector<shared_ptr<SampleAlleleAbundances> >& abundances);
-    void record_tracking_data(vector<shared_ptr<SampleAlleleAbundances> >& abundances);
-    bool all_samples_reported_in(vector<shared_ptr<SampleAlleleAbundances> >& abundances);
+    vector<vector<boost::shared_ptr<SampleAlleleAbundances> > > test_finished_loci();
+    void perform_testing(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances);
+    void record_tracking_data(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances);
+    bool all_samples_reported_in(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances);
     bool all_samples_reported_in(const string& locus_id);
     
     void clear_tracking_data() { _tracking->clear(); }
     
-    typedef list<pair<string, vector<shared_ptr<SampleAlleleAbundances> > > > launcher_sample_table;
+    typedef list<pair<string, vector<boost::shared_ptr<SampleAlleleAbundances> > > > launcher_sample_table;
     
 private:
     
@@ -1089,9 +1014,9 @@ private:
     launcher_sample_table _samples;
     AlleleTests* _tests;
     Tracking* _tracking;
-	bool _samples_are_time_series;
+    bool _samples_are_time_series;
     ProgressBar* _p_bar;
-
+    bool _track_only;
 };
 
 extern double min_read_count;
@@ -1112,14 +1037,17 @@ void test_differential(const string& locus_tag,
 					   Tracking& tracking);
 
 //nimrod
-void allele_sample_worker(const RefSequenceTable& rt,
-                   ReplicatedBundleFactory& sample_factory,
-                   shared_ptr<SampleAlleleAbundances> abundance,
-                   size_t factory_id,
-                   shared_ptr<AlleleTestLauncher> launcher);
+void allele_sample_worker(bool non_empty,
+                          boost::shared_ptr<HitBundle> bundle,
+                          const RefSequenceTable& rt,
+                          ReplicatedBundleFactory& sample_factory,
+                          boost::shared_ptr<SampleAlleleAbundances> abundance,
+                          size_t factory_id,
+                          boost::shared_ptr<AlleleTestLauncher> launcher,
+                          bool calculate_variance);
 
 void test_differential(const string& locus_tag,
-					   const vector<shared_ptr<SampleAlleleAbundances> >& samples,
+					   const vector<boost::shared_ptr<SampleAlleleAbundances> >& samples,
 					   AlleleTests& tests,
 					   Tracking& tracking,
                        bool samples_are_time_series);

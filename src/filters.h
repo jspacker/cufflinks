@@ -22,10 +22,10 @@ void filter_junk_isoforms(vector<boost::shared_ptr<Abundance> >& transcripts,
                           const vector<boost::shared_ptr<Abundance> >& mapped_transcripts,
                           double locus_mass);
 
-void filter_junk_isoforms(vector<shared_ptr<Abundance> >& transcripts,
+void filter_junk_isoforms(vector<boost::shared_ptr<Abundance> >& transcripts,
 						  vector<double>& paternal_abundances,
 						  vector<double>& maternal_abundances,
-                          const vector<shared_ptr<Abundance> >& mapped_transcripts,
+                          const vector<boost::shared_ptr<Abundance> >& mapped_transcripts,
                           double locus_mass);
 
 void filter_introns(int bundle_length,

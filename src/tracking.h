@@ -92,7 +92,9 @@ struct FPKMTracking
 	
     vector<vector<boost::shared_ptr<const ReadGroupProperties> > > rg_props;
     
-	vector<FPKMContext> fpkm_series;
+    vector<FPKMContext> fpkm_series;
+    vector<FPKMContext> paternal_fpkm_series;
+    vector<FPKMContext> maternal_fpkm_series;
 };
 
 typedef map<string,  FPKMTracking> FPKMTrackingTable;

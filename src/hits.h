@@ -1206,7 +1206,7 @@ public:
 		
         if (is_multi())
 		{
-			shared_ptr<MultiReadTable> mrt = _rg_props->multi_read_table();
+			boost::shared_ptr<MultiReadTable> mrt = _rg_props->multi_read_table();
 			if (mrt)
 				mrt->get_mass(*this, paternal_mass, maternal_mass);
 			else

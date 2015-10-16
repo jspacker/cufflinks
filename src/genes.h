@@ -383,7 +383,7 @@ public:
 	double paternal_estimated_count() const 
     {
         double est = 0.0;
-        foreach (const Isoform& iso, _isoforms)
+        BOOST_FOREACH (const Isoform& iso, _isoforms)
 		{
 			est += iso.paternal_estimated_count(); 
 		}
@@ -393,7 +393,7 @@ public:
 	double maternal_estimated_count() const 
     {
         double est = 0.0;
-        foreach (const Isoform& iso, _isoforms)
+        BOOST_FOREACH (const Isoform& iso, _isoforms)
 		{
 			est += iso.maternal_estimated_count(); 
 		}
@@ -419,7 +419,7 @@ public:
     {
         double eff = 0.0;
         double total_fpkm = 0;
-        foreach (const Isoform& iso, _isoforms)
+        BOOST_FOREACH (const Isoform& iso, _isoforms)
 		{
 			eff += iso.paternal_FPKM() * iso.paternal_effective_length();
             total_fpkm += iso.paternal_FPKM();
@@ -434,7 +434,7 @@ public:
     {
         double eff = 0.0;
         double total_fpkm = 0;
-        foreach (const Isoform& iso, _isoforms)
+        BOOST_FOREACH (const Isoform& iso, _isoforms)
 		{
 			eff += iso.maternal_FPKM() * iso.maternal_effective_length();
             total_fpkm += iso.maternal_FPKM();
