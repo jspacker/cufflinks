@@ -2098,7 +2098,10 @@ void driver(const string& hit_file_name, FILE* ref_gtf, FILE* mask_gtf)
 }
 
 int main(int argc, char** argv)
-{	
+{
+  // for debugging
+  atexit(print_stack_trace_if_exit_with_error);
+	
     init_library_table();
     init_cufflinks_lib_norm_method_table();
     

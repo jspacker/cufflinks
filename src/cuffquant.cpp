@@ -72,6 +72,7 @@ static struct option long_options[] = {
 {"max-mle-iterations",		required_argument,		 0,			 OPT_MLE_MAX_ITER},
 {"min-mle-accuracy",		required_argument,		 0,			 OPT_MLE_MIN_ACC},
 {"bias-mode",               required_argument,		 0,			 OPT_BIAS_MODE},
+{"allele-specific-abundance-estimation",  no_argument,     0,    OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION},
 {"no-update-check",         no_argument,             0,          OPT_NO_UPDATE_CHECK},
     
 // Some options for testing different stats policies
@@ -106,6 +107,7 @@ void print_usage()
     fprintf(stderr, "  -s/--frag-len-std-dev        fragment length std deviation (unpaired reads only)   [ default:     80 ]\n");
     fprintf(stderr, "  -c/--min-alignment-count     minimum number of alignments in a locus for testing   [ default:   10 ]\n");
     fprintf(stderr, "  --max-mle-iterations         maximum iterations allowed for MLE calculation        [ default:   5000 ]\n");
+    fprintf(stderr, "  --allele-specific-abundance-estimation   Estimation of allele specific isoform aundances [ default:  FALSE ]\n");
     fprintf(stderr, "  -v/--verbose                 log-friendly verbose processing (no progress bar)     [ default:  FALSE ]\n");
 	fprintf(stderr, "  -q/--quiet                   log-friendly quiet processing (no progress bar)       [ default:  FALSE ]\n");
     fprintf(stderr, "  --seed                       value of random number generator seed                 [ default:      0 ]\n");
@@ -295,7 +297,11 @@ int parse_options(int argc, char** argv)
 				lib_norm_method_str = optarg;
 				break;
 			}
-            
+            case OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION:
+            {   
+                allele_specific_abundance_estimation = true;
+                break;
+            } 
 			default:
 				print_usage();
 				return 1;

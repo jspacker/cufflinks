@@ -1639,7 +1639,7 @@ void allele_sample_worker(bool non_empty,
         // are done, and if so, perform the cross sample testing.
         launcher->abundance_avail(locus_tag, abundance, factory_id);
         vector<vector<boost::shared_ptr<SampleAlleleAbundances> > > to_be_tested = launcher->test_finished_loci();
-        launcher->perform_testing(to_be_tested);
+        //launcher->perform_testing(to_be_tested);
         //launcher();
 #endif
     	return;

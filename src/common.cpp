@@ -27,6 +27,11 @@
 #include "common.h"
 #include "replicates.h"
 
+// for debugging
+#include <unistd.h>
+#include <signal.h>
+#include <execinfo.h>
+
 using namespace std;
 
 
@@ -517,4 +522,14 @@ ReadGroupProperties::ReadGroupProperties() :
 	_phase(UNPHASED)
 {
     _mass_dispersion_model = boost::shared_ptr<MassDispersionModel const>(new PoissonDispersionModel(""));
-} 
+}
+
+bool exit_because_error = false;
+void print_stack_trace_if_exit_with_error() {
+    if (exit_because_error) {
+        void *array[20];
+        size_t size = backtrace(array, 20);
+        backtrace_symbols_fd(array, size, STDERR_FILENO);
+    }
+}
+

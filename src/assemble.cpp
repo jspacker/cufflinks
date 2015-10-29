@@ -421,7 +421,7 @@ bool make_scaffolds(int bundle_left,
        
 		vector<float> depth_of_coverage(bundle_length,0);
 		map<pair<int,int>, float> intron_depth_of_coverage;
-		if(allele)
+		if(!allele)
 		{
 			compute_doc(bundle_left, 
 						hits, 

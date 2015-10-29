@@ -154,7 +154,8 @@ extern double mle_accuracy;
 // END SECRET OPTIONS
 
 #define ASM_VERBOSE 0
-#define ENABLE_THREADS 1
+//#define ENABLE_THREADS 1
+#define ENABLE_THREADS 0
 
 #if ENABLE_THREADS
 extern boost::thread_specific_ptr<std::string> bundle_label; // for consistent, traceable logging
@@ -806,6 +807,10 @@ std::string cat_strings(const T& container, const char* delimiter=",")
     
 	return cat;
 }
+
+// for debugging
+extern bool exit_because_error;
+void print_stack_trace_if_exit_with_error();
 
 #define OPT_NUM_IMP_SAMPLES         260
 #define OPT_MLE_MAX_ITER            261

@@ -49,6 +49,9 @@
 
 #include "negative_binomial_distribution.h"
 
+// for debugging
+#include "common.h"
+
 
 #include <Eigen/Dense>
 //using Eigen::MatrixXd;
@@ -7078,7 +7081,7 @@ void AlleleAbundanceGroup::simulate_count_covariance(const vector<MateHit>& nr_a
 			if (_parental_count_covariance(i,i) < ceil(_abundances[i-_abundances.size()]->num_maternal_fragments() + _iterated_exp_parental_count_covariance(i,i)))
 			{
 				//fprintf(stderr, "Counts for %d (var = %lg) are underdispersed, reverting to additive variance model (%lg)\n", i, _count_covariance(i,i),  ceil(_abundances[i]->num_fragments() + _iterated_exp_count_covariance(i,i)));
-				_parental_count_covariance(i,i) = ceil(_abundances[i-_abundances.size()]->num_fragments() + _iterated_exp_parental_count_covariance(i,i));
+				_parental_count_covariance(i,i) = ceil(_abundances[i-_abundances.size()]->num_paternal_fragments() + _iterated_exp_parental_count_covariance(i,i));
 			}
 		}
         
@@ -9103,12 +9106,14 @@ double compute_doc_allele(int bundle_origin,
 void allele_impl_error()
 {
     fprintf(stderr, "Non-allelic abundance method called with allelic abundance class!\n");
+    exit_because_error = true;
     exit(1);
 }
 
 void nonallele_impl_error()
 {
     fprintf(stderr, "Allelic abundance method called with non-allelic abundance class!\n");
+    exit_because_error = true;
     exit(1);
 }
 
