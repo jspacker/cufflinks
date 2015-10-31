@@ -32,6 +32,61 @@ boost::mutex RefSequenceTable::table_lock;
 
 int num_deleted = 0;
 
+char base_at(uint8_t* seq, int rel_pos)
+{
+    char encoded = bam1_seqi(seq, rel_pos);
+    switch (encoded)
+    {
+        case 1: return 'A'; break;
+        case 2: return 'C'; break;
+        case 4: return 'G'; break;
+        case 8: return 'T'; break;
+    }
+    return 'N';
+}
+
+bool get_next_match_seg_from_cigar(vector<CigarOp>::const_iterator& cigar,
+                                   vector<CigarOp>::const_iterator end,
+                                   int& seg_left, int& seg_left_rel, int& seg_right)
+{
+    if (cigar->opcode == MATCH)
+    {
+        seg_left += cigar->length;
+        seg_left_rel += cigar->length;
+        ++cigar;
+    }
+
+    do
+    {
+        switch (cigar->opcode)
+        {
+            case DEL:
+            case REF_SKIP:
+            case SOFT_CLIP:
+            case HARD_CLIP:
+                seg_left += cigar->length;
+                break;
+            default:
+                break;
+        }
+
+        switch (cigar->opcode)
+        {
+            case INS:
+            case SOFT_CLIP:
+                seg_left_rel += cigar->length;
+            default:
+                break;
+        }
+
+        ++cigar;
+        if (cigar == end) return false;
+    } while (cigar->opcode != MATCH);
+    
+    seg_right = seg_left + cigar->length - 1;
+    return true;
+}
+
 void ReadHit::trim(int trimmed_length)
 {
     bool antisense_aln = _sam_flag & 0x10;
@@ -669,9 +724,11 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 	//2 - either no variations or all variations contained in this locus are ambiguous wrt the allele, yet the paternal genomes is used as ref
 	//3 - either no variations or all variations contained in this locus are ambiguous wrt the allele, yet the maternal genomes is used as ref
 	
+	bool got_phase_from_bam = false;
 	ptr = bam_aux_get(hit_buf, "XA");
 	if (ptr)
 	{
+		got_phase_from_bam = true;
 		 int alleleInfo = bam_aux2i(ptr);
 		 switch (alleleInfo) {
 			 case 0: allele_info = ALLELE_PATERNAL; break;
@@ -680,7 +737,7 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 			 case 3: allele_info = ALLELE_UNINFORMATIVE_MATERNAL_REF; break;	 
 			 default: allele_info = ALLELE_UNKNOWN; break;
 		 }		 
-	}
+	}	
 	
     if (_rg_props.strandedness() == STRANDED_PROTOCOL && source_strand == CUFF_STRAND_UNKNOWN)
 		source_strand = use_stranded_protocol(sam_flag, _rg_props.mate_strand_mapping());
@@ -702,8 +759,6 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
                         mass,
                         sam_flag,
 			            allele_info);
-		return true;
-		
 	}
 	else
 	{	
@@ -724,9 +779,82 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
                         mass,
                         sam_flag,
 			            allele_info);
-		return true;
 	}
 	
+	if (!got_phase_from_bam && _snps != NULL)
+	{
+		map<string, map<int, pair<char, char> > >::iterator this_chr_snp = _snps->find(text_name);
+		if (this_chr_snp != _snps->end())
+		{
+			// ReadHit is 0-indexed [left, right), VCF is 1-indexed
+			int read_left = bh.left()+1;
+			int read_right = bh.right();
+
+			// Coordinates for a contiguous segment of the alignment
+			int seg_left = read_left;
+			int seg_left_rel = 0;
+			int seg_right;
+
+			map<int, pair<char, char> >::iterator snp = this_chr_snp->second.lower_bound(read_left);
+			uint8_t* seq = bam1_seq(hit_buf);
+			vector<CigarOp>::const_iterator cigar = bh.cigar().begin();
+                        vector<CigarOp>::const_iterator cigar_end = bh.cigar().end();
+
+			if (cigar->opcode == MATCH)
+				seg_right = read_left + cigar->length - 1;
+			else if (!get_next_match_seg_from_cigar(cigar, cigar_end, seg_left, seg_left_rel, seg_right))
+				return true;
+
+			while (snp != this_chr_snp->second.end() && snp->first <= read_right)
+			{
+				if (snp->first > seg_right)
+				{
+					if (!get_next_match_seg_from_cigar(cigar, cigar_end, seg_left, seg_left_rel, seg_right))
+						return true;
+				}
+
+				if (snp->first < seg_left || snp->first > seg_right)
+				{
+					++snp;
+					continue;
+				}
+
+				int rel_pos = snp->first - seg_left + seg_left_rel;
+				//fprintf(stderr, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%c\t%c\n", text_name.c_str(), read_left, read_right, seg_left, seg_right, snp->first, seg_left_rel, rel_pos, snp->second.first, snp->second.second);
+				char gt = base_at(seq, rel_pos);
+				if (gt == snp->second.first)
+				{
+					if (allele_info == ALLELE_MATERNAL)
+					{
+						allele_info = ALLELE_UNKNOWN;
+						break;
+					}
+					else
+					{
+						allele_info = ALLELE_PATERNAL;
+					}
+				}
+				else if (gt == snp->second.second)
+				{
+					if (allele_info == ALLELE_PATERNAL)
+					{
+						allele_info = ALLELE_UNKNOWN;
+						break;
+					}
+					else
+					{
+						allele_info = ALLELE_MATERNAL;
+					}
+				}
+				++snp;
+			}
+		}
+
+		if (allele_info == ALLELE_PATERNAL || allele_info == ALLELE_MATERNAL)
+		{
+			bh.allele_info(allele_info);
+		}
+	}
 	
 	return true;
 }
@@ -1096,7 +1224,8 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 	CuffStrand source_strand = CUFF_STRAND_UNKNOWN;
 	unsigned char num_mismatches = 0;
 	AlleleInfo allele_info = ALLELE_UNKNOWN; //Nimrod
-	
+	bool got_phase_from_sam = false;	
+
 	const char* tag_buf = buf;
 	
     double mass = 1.0;
@@ -1146,6 +1275,7 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 				//3 - either no variations or all variations contained in this locus are ambiguous wrt the allele yet the maternal genome is used as ref				
 				else if (!strcmp(first_token, "XA"))
 				{
+					got_phase_from_sam = true;
 					int alleleInfo = atoi(third_token);
 					switch (alleleInfo) {
 					    case 0: allele_info = ALLELE_PATERNAL; break;
@@ -1182,8 +1312,6 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
                         mass,
                         sam_flag,
 			            allele_info);
-		return true;
-		
 	}
 	else
 	{	
@@ -1205,9 +1333,84 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
                         sam_flag,
 			            allele_info);
 				
-		return true;
 	}
-	return false;
+
+	if (!got_phase_from_sam && _snps != NULL)
+	{
+		map<string, map<int, pair<char, char> > >::iterator this_chr_snp = _snps->find(text_name);
+		if (this_chr_snp != _snps->end())
+		{
+			// ReadHit is 0-indexed [left, right), VCF is 1-indexed
+			int read_left = bh.left()+1;
+			int read_right = bh.right();
+
+			// Coordinates for a contiguous segment of the alignment
+			int seg_left = read_left;
+			int seg_left_rel = 0;
+			int seg_right;
+
+			map<int, pair<char, char> >::iterator snp = this_chr_snp->second.lower_bound(read_left);
+			vector<CigarOp>::const_iterator cigar = bh.cigar().begin();
+                        vector<CigarOp>::const_iterator cigar_end = bh.cigar().end();
+
+			if (cigar->opcode == MATCH)
+				seg_right = read_left + cigar->length - 1;
+			else if (!get_next_match_seg_from_cigar(cigar, cigar_end, seg_left, seg_left_rel, seg_right))
+				return true;
+
+			while (snp != this_chr_snp->second.end() && snp->first <= read_right)
+			{
+				if (snp->first > seg_right)
+                                {
+                                        if (!get_next_match_seg_from_cigar(cigar, cigar_end, seg_left, seg_left_rel, seg_right))
+						return true;
+                                }
+
+				if (snp->first < seg_left || snp->first > seg_right)
+				{
+					++snp;
+					continue;
+				}
+
+				int rel_pos = snp->first - seg_left + seg_left_rel;
+				//fprintf(stderr, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%c\t%c\n", text_name, read_left, read_right, seg_left, seg_right, snp->first, seg_left_rel, rel_pos, snp->second.first, snp->second.second);
+				char gt = seq_str[rel_pos];
+				if (gt == snp->second.first)
+				{
+					if (allele_info == ALLELE_MATERNAL)
+					{
+						allele_info = ALLELE_UNKNOWN;
+						break;
+					}
+					else
+					{
+						allele_info = ALLELE_PATERNAL;
+					}
+				}
+				else if (gt == snp->second.second)
+				{
+					if (allele_info == ALLELE_PATERNAL)
+					{
+						allele_info = ALLELE_UNKNOWN;
+						break;
+					}
+					else
+					{
+						allele_info = ALLELE_MATERNAL;
+					}
+				}
+				++snp;
+			}
+		}
+
+		if (allele_info == ALLELE_PATERNAL || allele_info == ALLELE_MATERNAL)
+		{
+			bh.allele_info(allele_info);
+		}
+	}
+
+
+	return true;
 }
 
 bool SAMHitFactory::inspect_header()

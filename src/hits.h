@@ -324,6 +324,7 @@ struct ReadHit
 	//const string& hitfile_rec() const { return _hitfile_rec; }
 	//void hitfile_rec(const string& rec) { _hitfile_rec = rec; }
 	AlleleInfo allele_info()	const	{ return _allele_info; }
+	void allele_info(AlleleInfo info) { _allele_info = info; }
 	
 private:
 	
@@ -605,7 +606,7 @@ class HitFactory
 public:
     
 	HitFactory(ReadTable& insert_table, 
-			   RefSequenceTable& reference_table) : 
+                   RefSequenceTable& reference_table) : 
 		_insert_table(insert_table), 
 		_ref_table(reference_table),
         _num_seq_header_recs(0) {}
@@ -701,10 +702,12 @@ class SAMHitFactory : public HitFactory
 public:
 	SAMHitFactory(const string& hit_file_name, 
 				  ReadTable& insert_table, 
-				  RefSequenceTable& reference_table) : 
+				  RefSequenceTable& reference_table,
+                                  map<string, map<int, pair<char, char> > >* snps = NULL) : 
 		HitFactory(insert_table, reference_table), 
 		_line_num(0), 
-		_curr_pos(0) 
+		_curr_pos(0),
+                _snps(snps)
 	{
 		_hit_file = fopen(hit_file_name.c_str(), "r");
 		if (_hit_file == NULL)
@@ -761,6 +764,8 @@ private:
 	
 	FILE* _hit_file;
 	off_t _curr_pos;
+
+	map<string, map<int, pair<char, char> > >* _snps;
 };
 
 /******************************************************************************
@@ -771,8 +776,10 @@ class BAMHitFactory : public HitFactory
 public:
 	BAMHitFactory(const string& hit_file_name, 
 				  ReadTable& insert_table, 
-				  RefSequenceTable& reference_table) : 
-		HitFactory(insert_table, reference_table) 
+				  RefSequenceTable& reference_table,
+                                  map<string, map<int, pair<char, char> > >* snps = NULL) : 
+		HitFactory(insert_table, reference_table),
+                _snps(snps) 
 	{
 		_hit_file = samopen(hit_file_name.c_str(), "rb", 0);
         
@@ -851,6 +858,8 @@ private:
 	
 	bam1_t _next_hit; 
     bool _eof_encountered;
+
+    map<string, map<int, pair<char, char> > >* _snps;
 };
 
 class AbundanceGroup;

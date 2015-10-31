@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <string>
+#include <fstream>
 
 #include "common.h"
 #include "hits.h"
@@ -70,6 +71,7 @@ static struct option long_options[] = {
 {"compatible-hits-norm",    no_argument,	 		 0,	         OPT_USE_COMPAT_MASS},
 {"total-hits-norm",         no_argument,	 		 0,	         OPT_USE_TOTAL_MASS},
 {"allele-specific-abundance-estimation",  no_argument,     0,    OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION},	
+{"input-vcf", required_argument, 0, OPT_INPUT_VCF },
     
 // assembly
 {"pre-mrna-fraction",		required_argument,		 0,			 'j'},
@@ -138,7 +140,8 @@ void print_usage()
     fprintf(stderr, "  -N/--upper-quartile-norm     Deprecated, use --library-norm-method                 [    DEPRECATED   ]\n");
     fprintf(stderr, "  --raw-mapped-norm            Deprecated, use --library-norm-method                 [    DEPRECATED   ]\n");
     //Nimrod
-	fprintf(stderr, "  --allele-specific-abundance-estimation   Estimation of allele specific isoform aundances [ default:  FALSE ]\n");
+    fprintf(stderr, "  --allele-specific-abundance-estimation   Estimation of allele specific isoform aundances [ default:  FALSE ]\n");
+    fprintf(stderr, "  --input-vcf                  phased VCF used to assign reads to alleles if they aren't already phased\n");
     fprintf(stderr, "\nAdvanced Assembly Options:\n");
     fprintf(stderr, "  -L/--label                   assembled transcripts have this ID prefix             [ default:   CUFF ]\n");
     fprintf(stderr, "  -F/--min-isoform-fraction    suppress transcripts below this abundance level       [ default:   0.10 ]\n");
@@ -397,9 +400,14 @@ int parse_options(int argc, char** argv)
                 use_total_mass = true;
                 break;
             }
-		    case OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION:
+            case OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION:
             {
                 allele_specific_abundance_estimation = true;
+                break;
+            }
+            case OPT_INPUT_VCF:
+            {
+                input_vcf = optarg;
                 break;
             }
             case OPT_MAX_FRAGS_PER_BUNDLE:
@@ -1959,9 +1967,91 @@ bool assemble_hits(BundleFactory& bundle_factory, boost::shared_ptr<BiasLearner>
 	  fclose(fskipped);
 	return true;
 }
+
+void splitString(const string& str,
+                 vector<string>& subStrs,
+                 const string& delimiter)
+{
+    // Skip delimiter at beginning.
+    string::size_type lastPos = str.find_first_not_of(delimiter,0);
+    // Find first "non-delimiter".
+    string::size_type pos = str.find_first_of(delimiter,lastPos);
+    subStrs.clear();
 	
-void driver(const string& hit_file_name, FILE* ref_gtf, FILE* mask_gtf)
-{	
+    while (string::npos != pos || string::npos != lastPos)
+    {
+        // Found a subStr, add it to the vector.
+        subStrs.push_back(str.substr(lastPos,pos - lastPos));
+        // Skip delimiter.  Note the "not_of"
+        lastPos = str.find_first_not_of(delimiter,pos);
+        // Find next "non-delimiter"
+        pos = str.find_first_of(delimiter,lastPos);
+    } 										
+}
+
+void load_vcf(string& input_vcf,
+              map<string, map<int, pair<char, char> > >& snps)
+{
+    ifstream file;
+    string line;
+    char pat_allele, mat_allele;
+    vector<string> fields, genotype, vars;
+    file.open(input_vcf.c_str());
+
+    if (!file.good()) {
+        fprintf(stderr, "Cannot open VCF file %s for reading",
+                input_vcf.c_str());
+        exit(1);
+    }
+
+    while(getline(file, line, '\n')) {
+        if (line.empty() || line.substr(0, 1) == "#")
+            continue;
+
+        splitString(line, fields, "\t");
+        splitString(fields[9], genotype, ":");
+
+        // SNPs only
+        if (fields[3].length() != 1 || fields[4].length() != 1)
+            continue;
+
+        if (genotype[0] == "0|1") {
+            pat_allele = fields[3][0];
+            mat_allele = fields[4][0];
+        } else if (genotype[0] == "1|0") {
+            pat_allele = fields[4][0];
+            mat_allele = fields[3][0];
+        } else if (genotype[0] == "1|2") {
+            splitString(fields[4], vars, ",");
+            pat_allele = vars[0][0];
+            mat_allele = vars[1][0];
+        } else if (genotype[0] == "2|1") {
+            splitString(fields[4], vars, ",");
+            pat_allele = vars[1][0];
+            mat_allele = vars[0][0];
+        } else {
+            continue;
+        }
+
+        pair<char, char> var(pat_allele, mat_allele);
+        int pos = (int) strtol(fields[1].c_str(), NULL, 10);
+        snps[fields[0]][pos] = var;
+    }
+
+    file.close();
+}
+	
+void driver(const string& hit_file_name,
+            FILE* ref_gtf,
+            FILE* mask_gtf,
+            string& input_vcf)
+{
+    // chr -> pos -> (paternal allele, maternal allele)
+    map<string, map<int, pair<char, char> > > snps;
+    if (input_vcf != "") {
+        load_vcf(input_vcf, snps);
+    }
+
     ReadTable it;
 	RefSequenceTable rt(true, false);
 	    
@@ -1969,7 +2059,7 @@ void driver(const string& hit_file_name, FILE* ref_gtf, FILE* mask_gtf)
 
     try
 	{
-		hit_factory = boost::shared_ptr<BAMHitFactory>(new BAMHitFactory(hit_file_name, it, rt));
+		hit_factory = boost::shared_ptr<BAMHitFactory>(new BAMHitFactory(hit_file_name, it, rt, &snps));
 	}
 	catch (std::runtime_error& e)
 	{
@@ -1978,7 +2068,7 @@ void driver(const string& hit_file_name, FILE* ref_gtf, FILE* mask_gtf)
 	
         try
         {
-            hit_factory = boost::shared_ptr<SAMHitFactory>(new SAMHitFactory(hit_file_name, it, rt));
+            hit_factory = boost::shared_ptr<SAMHitFactory>(new SAMHitFactory(hit_file_name, it, rt, &snps));
         }
         catch (std::runtime_error& e)
         {
@@ -2162,7 +2252,7 @@ int main(int argc, char** argv)
 			exit(1);
 		}
 	}
-	
+
     if (output_dir != "")
     {
         int retcode = mkpath(output_dir.c_str(), 0777);
@@ -2178,7 +2268,7 @@ int main(int argc, char** argv)
         }
     }
     
-    driver(sam_hits_file_name, ref_gtf, mask_gtf);
+    driver(sam_hits_file_name, ref_gtf, mask_gtf, input_vcf);
 	
 	return 0;
 }

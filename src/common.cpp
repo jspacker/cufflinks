@@ -86,6 +86,7 @@ bool use_total_mass = false;
 bool model_mle_error = false;
 bool allele_specific_abundance_estimation = false;
 int min_allele_reads = 10;
+string input_vcf = "";
 
 // Ref-guided assembly options
 int overhang_3 = 600;

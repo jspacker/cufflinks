@@ -92,6 +92,7 @@ extern bool use_total_mass;
 extern bool model_mle_error;
 extern bool allele_specific_abundance_estimation;
 extern int min_allele_reads;
+extern std::string input_vcf;
 
 // Ref-guided assembly options
 extern int overhang_3;
@@ -872,4 +873,5 @@ void print_stack_trace_if_exit_with_error();
 #define OPT_OUTPUT_FORMAT           320
 #define OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION 321
 #define OPT_ALLELE_SPECIFIC_DIFFERENTIAL 322
+#define OPT_INPUT_VCF 323
 #endif
