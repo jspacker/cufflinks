@@ -187,6 +187,11 @@ float parseFloat(float lower,
 void encode_seq(const std::string seqStr, char* seq, char* c_seq);
 int mkpath(const char *s, mode_t mode);
 
+void splitString(const std::string& str,
+                 std::vector<std::string>& subStrs,
+                 const std::string& delimiter);
+void load_vcf(std::string& input_vcf,
+              std::map<std::string, std::map<int, std::pair<char, char> > >& snps);
 
 template<typename InputIterator,
 		 typename OutputIterator,

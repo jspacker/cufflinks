@@ -1447,7 +1447,7 @@ void learn_bias_worker(boost::shared_ptr<BundleFactory> fac)
 #endif
 	boost::shared_ptr<ReadGroupProperties> rg_props = fac->read_group_properties();
 	BiasLearner* bl = new BiasLearner(rg_props->frag_len_dist());
-	learn_bias(*fac, *bl, false);
+	learn_bias(*fac, *bl, false, allele_specific_differential);
 	rg_props->bias_learner(boost::shared_ptr<BiasLearner>(bl));
 }
 

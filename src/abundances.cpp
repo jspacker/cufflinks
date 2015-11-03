@@ -5699,6 +5699,45 @@ double AlleleAbundanceGroup::maternal_gamma() const
 	return gamma;
 }
 
+void AlleleTranscriptAbundance::clear_non_serialized_data()
+{
+    _fpkm_samples.clear();
+    std::vector<double>().swap(_fpkm_samples);
+
+    if (_paternal_cond_probs)
+    {
+        _paternal_cond_probs->clear();
+        std::vector<double>().swap(*_paternal_cond_probs);
+    }
+
+    if (_maternal_cond_probs)
+    {
+        _maternal_cond_probs->clear();
+        std::vector<double>().swap(*_maternal_cond_probs);
+    }
+
+    if (_transfrag)
+    {
+        _transfrag->clear_hits();
+        _transfrag = boost::shared_ptr<Scaffold>();
+    }
+}
+
+void AlleleAbundanceGroup::clear_non_serialized_data()
+{
+    for (size_t i = 0; i < _abundances.size(); ++i)
+    {
+        _abundances[i]->clear_non_serialized_data();
+    }
+
+    _fpkm_samples.clear();
+    std::vector<double>().swap(_fpkm_samples);
+    //_member_fpkm_samples.clear();
+    //std::vector<Eigen::VectorXd>().swap(_member_fpkm_samples);
+    //_assigned_count_samples.clear();
+    //std::vector<Eigen::VectorXd>().swap(_assigned_count_samples);
+}
+
 void AlleleAbundanceGroup::filter_group(const vector<bool>& to_keep, 
 								  AlleleAbundanceGroup& filtered_group) const
 {

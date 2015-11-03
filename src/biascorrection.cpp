@@ -94,7 +94,10 @@ void get_compatibility_list(const vector<boost::shared_ptr<Scaffold> >& transcri
 	}
 }
 
-void learn_bias(BundleFactory& bundle_factory, BiasLearner& bl, bool progress_bar)
+void learn_bias(BundleFactory& bundle_factory,
+                BiasLearner& bl,
+                bool progress_bar,
+                bool allele_mode)
 {
 	HitBundle bundle;
 	RefSequenceTable& rt = bundle_factory.ref_table();
@@ -130,7 +133,7 @@ void learn_bias(BundleFactory& bundle_factory, BiasLearner& bl, bool progress_ba
 		
         for (size_t j = 0; j < bundle.ref_scaffolds().size(); ++j)
         {
-            bl.preProcessTranscript(*(bundle.ref_scaffolds()[j]));
+            bl.preProcessTranscript(*(bundle.ref_scaffolds()[j]), allele_mode);
         }
         
 		delete bundle_ptr;

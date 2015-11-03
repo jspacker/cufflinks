@@ -15,6 +15,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
+#include <fstream>
 #include <stdarg.h>
 
 #include <sys/types.h>
@@ -304,6 +305,79 @@ out:
     free(q);
     free(path);
     return (rv);
+}
+
+void splitString(const string& str,
+                 vector<string>& subStrs,
+                 const string& delimiter)
+{
+    // Skip delimiter at beginning.
+    string::size_type lastPos = str.find_first_not_of(delimiter,0);
+    // Find first "non-delimiter".
+    string::size_type pos = str.find_first_of(delimiter,lastPos);
+    subStrs.clear();
+	
+    while (string::npos != pos || string::npos != lastPos)
+    {
+        // Found a subStr, add it to the vector.
+        subStrs.push_back(str.substr(lastPos,pos - lastPos));
+        // Skip delimiter.  Note the "not_of"
+        lastPos = str.find_first_not_of(delimiter,pos);
+        // Find next "non-delimiter"
+        pos = str.find_first_of(delimiter,lastPos);
+    } 										
+}
+
+void load_vcf(string& input_vcf,
+              map<string, map<int, pair<char, char> > >& snps)
+{
+    ifstream file;
+    string line;
+    char pat_allele, mat_allele;
+    vector<string> fields, genotype, vars;
+    file.open(input_vcf.c_str());
+
+    if (!file.good()) {
+        fprintf(stderr, "Cannot open VCF file %s for reading",
+                input_vcf.c_str());
+        exit(1);
+    }
+
+    while(getline(file, line, '\n')) {
+        if (line.empty() || line.substr(0, 1) == "#")
+            continue;
+
+        splitString(line, fields, "\t");
+        splitString(fields[9], genotype, ":");
+
+        // SNPs only
+        if (fields[3].length() != 1 || fields[4].length() != 1)
+            continue;
+
+        if (genotype[0] == "0|1") {
+            pat_allele = fields[3][0];
+            mat_allele = fields[4][0];
+        } else if (genotype[0] == "1|0") {
+            pat_allele = fields[4][0];
+            mat_allele = fields[3][0];
+        } else if (genotype[0] == "1|2") {
+            splitString(fields[4], vars, ",");
+            pat_allele = vars[0][0];
+            mat_allele = vars[1][0];
+        } else if (genotype[0] == "2|1") {
+            splitString(fields[4], vars, ",");
+            pat_allele = vars[1][0];
+            mat_allele = vars[0][0];
+        } else {
+            continue;
+        }
+
+        pair<char, char> var(pat_allele, mat_allele);
+        int pos = (int) strtol(fields[1].c_str(), NULL, 10);
+        snps[fields[0]][pos] = var;
+    }
+
+    file.close();
 }
 
 void init_library_table()

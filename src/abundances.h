@@ -1301,7 +1301,7 @@ public:
     const vector<double>& fpkm_samples() const { return _fpkm_samples; }
     void  fpkm_samples(const vector<double>& s) { _fpkm_samples = s; }
 	
-    void clear_non_serialized_data() {}
+    void clear_non_serialized_data();
 
 	virtual const string&	description() const	{ return _description; }
 	virtual void			description(const string& d) { _description = d; }
@@ -1335,6 +1335,43 @@ public:
 	}
 	
 private:
+
+    friend std::ostream & operator<<(std::ostream &os, const AlleleTranscriptAbundance &gp);
+    friend class boost::serialization::access;
+
+    template<class Archive>
+    void serialize(Archive & ar, const unsigned int /* file_version */) {    
+        ar & _paternal_status;
+        ar & _maternal_status;
+        ar & _paternal_FPKM;
+        ar & _maternal_FPKM;
+        ar & _paternal_FPKM_conf;
+        ar & _maternal_FPKM_conf;
+        ar & _paternal_gamma;
+        ar & _maternal_gamma;
+        ar & _paternal_kappa;
+        ar & _maternal_kappa;
+        ar & _num_paternal_fragments;
+        ar & _num_maternal_fragments;
+        ar & _num_paternal_fragment_var;
+        ar & _num_maternal_fragment_var;
+        ar & _num_paternal_fragment_uncertainty_var;
+        ar & _num_maternal_fragment_uncertainty_var;
+        ar & _paternal_eff_len;
+        ar & _maternal_eff_len;
+        ar & _description;
+        ar & _locus_tag;
+        ar & _ref_tag;
+        ar & _sample_mass_paternal_variance;
+        ar & _sample_mass_maternal_variance;
+        ar & _num_paternal_fragments_per_replicate;
+        ar & _num_maternal_fragments_per_replicate;
+        ar & _paternal_fpkm_per_replicate;
+        ar & _maternal_fpkm_per_replicate;
+        ar & _paternal_status_per_replicate;
+        ar & _maternal_status_per_replicate;
+        ar & _allele_informative;
+    }
 	
 	void calculate_paternal_FPKM_err_bar(double variance);
 	void calculate_maternal_FPKM_err_bar(double variance);
@@ -1625,7 +1662,7 @@ public:
         }
     }
    
-    void clear_non_serialized_data() {}
+    void clear_non_serialized_data();
  
     bool is_allele_informative() const { fprintf(stderr, "Error: AlleleAbundanceGroup is_allele_informative()\n"); exit(1); }
 private:
@@ -1662,7 +1699,61 @@ private:
    
 	void collect_per_replicate_mass(const vector<MateHit>& alignments,
 									vector<boost::shared_ptr<Abundance> >& transcripts);
-	
+
+    friend std::ostream & operator<<(std::ostream &os, const AlleleAbundanceGroup &gp);
+    friend class boost::serialization::access;
+
+    template<class Archive>
+    void save(Archive & ar, const unsigned int version) const
+    {
+        //ar & _abundances;
+        vector<AlleleTranscriptAbundance*> tmp;
+        BOOST_FOREACH(boost::shared_ptr<Abundance> ab, _abundances)
+        {
+            tmp.push_back((AlleleTranscriptAbundance*)&(*ab));
+        }
+        ar & tmp;
+        ar & _iterated_exp_parental_count_covariance;
+        ar & _parental_count_covariance;
+        ar & _parental_fpkm_covariance;
+        ar & _parental_gamma_covariance;
+       
+        ar & _paternal_kappa;
+        ar & _maternal_kappa;
+        ar & _paternal_FPKM_variance;
+        ar & _maternal_FPKM_variance;
+        ar & _description;
+        ar & _total_frags;
+        ar & _read_group_props;
+        ar & _count_per_replicate;
+    }
+    template<class Archive>
+    void load(Archive & ar, const unsigned int version)
+    {
+
+        vector<AlleleTranscriptAbundance*> tmp;
+        ar & tmp;
+        BOOST_FOREACH(AlleleTranscriptAbundance* ab, tmp)
+        {
+            _abundances.push_back(boost::shared_ptr<Abundance>(ab));
+        }
+        
+        ar & _iterated_exp_parental_count_covariance;
+        ar & _parental_count_covariance;
+        ar & _parental_fpkm_covariance;
+        ar & _parental_gamma_covariance;
+        
+        ar & _paternal_kappa;
+        ar & _maternal_kappa;
+        ar & _paternal_FPKM_variance;
+        ar & _maternal_FPKM_variance;
+        ar & _description;
+        ar & _total_frags;
+        ar & _read_group_props;
+        ar & _count_per_replicate;
+    }
+    BOOST_SERIALIZATION_SPLIT_MEMBER()
+    	
     //void collect_read_group_props();
 	
 	vector<boost::shared_ptr<Abundance> > _abundances;

@@ -118,3 +118,8 @@ struct Tracking
 void add_to_tracking_table(size_t sample_index,
                            Abundance& ab,
 						   FPKMTrackingTable& track);
+
+void add_to_tracking_table_allele(size_t sample_index,
+                                  Abundance& ab,
+                                  FPKMTrackingTable& track);
+

@@ -76,7 +76,7 @@ public:
 
 };
 
-void learn_bias(BundleFactory& bundle_factory, BiasLearner& bl, bool progress_bar = true);
+void learn_bias(BundleFactory& bundle_factory, BiasLearner& bl, bool progress_bar, bool allele_mode);
 void process_bundle(HitBundle& bundle, BiasLearner& bl);
 
 // Helps with the complexities of bias correction with replicates in cond_probs and eff_lens
