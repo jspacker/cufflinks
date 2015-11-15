@@ -1931,23 +1931,23 @@ void driver(const std::string& ref_gtf_filename,
     
 //    // FPKM tracking
 //    
-	FILE* fiso_fpkm_tracking =  outfiles.isoform_fpkm_tracking_out;
-	fprintf(stderr, "Writing isoform-level FPKM tracking\n");
-	if (allele_specific_abundance_estimation)
-		print_allele_FPKM_tracking(fiso_fpkm_tracking, tracking.isoform_fpkm_tracking);
-	else
-		print_FPKM_tracking(fiso_fpkm_tracking,tracking.isoform_fpkm_tracking); 
+//	FILE* fiso_fpkm_tracking =  outfiles.isoform_fpkm_tracking_out;
+//	fprintf(stderr, "Writing isoform-level FPKM tracking\n");
+//	if (allele_specific_abundance_estimation)
+//		print_allele_FPKM_tracking(fiso_fpkm_tracking, tracking.isoform_fpkm_tracking);
+//	else
+//		print_FPKM_tracking(fiso_fpkm_tracking,tracking.isoform_fpkm_tracking); 
 //	
 //	FILE* ftss_fpkm_tracking =  outfiles.tss_group_fpkm_tracking_out;
 //	fprintf(stderr, "Writing TSS group-level FPKM tracking\n");
 //	print_FPKM_tracking(ftss_fpkm_tracking,tracking.tss_group_fpkm_tracking);
 //	
-	FILE* fgene_fpkm_tracking =  outfiles.gene_fpkm_tracking_out;
-	fprintf(stderr, "Writing gene-level FPKM tracking\n");
-	if (allele_specific_abundance_estimation)
-		print_allele_FPKM_tracking(fgene_fpkm_tracking, tracking.gene_fpkm_tracking);
-	else
-		print_FPKM_tracking(fgene_fpkm_tracking,tracking.gene_fpkm_tracking);
+//	FILE* fgene_fpkm_tracking =  outfiles.gene_fpkm_tracking_out;
+//	fprintf(stderr, "Writing gene-level FPKM tracking\n");
+//	if (allele_specific_abundance_estimation)
+//		print_allele_FPKM_tracking(fgene_fpkm_tracking, tracking.gene_fpkm_tracking);
+//	else
+//		print_FPKM_tracking(fgene_fpkm_tracking,tracking.gene_fpkm_tracking);
 //	
 //	FILE* fcds_fpkm_tracking =  outfiles.cds_fpkm_tracking_out;
 //	fprintf(stderr, "Writing CDS-level FPKM tracking\n");
@@ -2100,8 +2100,8 @@ int main(int argc, char** argv)
     olap_radius = 0;
 	
 	Outfiles outfiles;
-	outfiles.isoform_fpkm_tracking_out = fopen("isoforms.txt", "w");
-	outfiles.gene_fpkm_tracking_out = fopen("genes.txt", "w");
+//	outfiles.isoform_fpkm_tracking_out = fopen("isoforms.txt", "w");
+//	outfiles.gene_fpkm_tracking_out = fopen("genes.txt", "w");
 	
     if (output_dir != "")
     {
