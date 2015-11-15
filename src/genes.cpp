@@ -140,26 +140,24 @@ void Isoform::get_allele_gtf(vector<string>& gff_recs,
 	else
 		strand_str = "-";
 	
-	int paternal_score = (int)(_paternal_FMI * 1000);
-	int maternal_score = (int)(_maternal_FMI * 1000);
-	paternal_score = min(1000, paternal_score);
-	maternal_score = min(1000, maternal_score);
-	if (paternal_score == 0)
-		paternal_score = 1;
-	if (maternal_score == 0)
-		maternal_score = 1;
+        // not sure what score is used for
+        // but old version that split it into paternal/maternal
+        // broke GTF parsing in cuffmerge
+	int score = (int) ((_paternal_FMI + _maternal_FMI) * 1000 / 2);
+	score = min(1000, score);
+	if (score == 0)
+		score = 1;
 	
 	char buf[2048];	
 
 	if (hit_introns != NULL)
     {
         sprintf(buf,
-				"%s\tCufflinks\ttranscript\t%d\t%d\t%d\t%d\t%s\t.\tgene_id \"%s\"; transcript_id \"%s\"; allele_informative \"%d\"; paternal_FPKM \"%10.10lf\"; maternal_FPKM \"%10.10lf\"; paternal_frac \"%lf\"; maternal_frac \"%lf\"; paternal_conf_lo \"%lf\"; paternal_conf_hi \"%lf\"; maternal_conf_lo \"%lf\"; maternal_conf_hi \"%lf\"; paternal_cov \"%lf\"; maternal_cov \"%lf\"; full_read_support \"%s\";\n",
+				"%s\tCufflinks\ttranscript\t%d\t%d\t%d\t%s\t.\tgene_id \"%s\"; transcript_id \"%s\"; allele_informative \"%d\"; paternal_FPKM \"%10.10lf\"; maternal_FPKM \"%10.10lf\"; paternal_frac \"%lf\"; maternal_frac \"%lf\"; paternal_conf_lo \"%lf\"; paternal_conf_hi \"%lf\"; maternal_conf_lo \"%lf\"; maternal_conf_hi \"%lf\"; paternal_cov \"%lf\"; maternal_cov \"%lf\"; full_read_support \"%s\";\n",
 			ref_name,
 			_scaffold.left() + 1,
 			_scaffold.right(), // GTF intervals are inclusive on both ends, but ours are half-open
-			paternal_score,
-			maternal_score,
+			score,
 			strand_str,
 			gene_id().c_str(),
 			trans_id().c_str(),
@@ -179,12 +177,11 @@ void Isoform::get_allele_gtf(vector<string>& gff_recs,
     else
     {
         sprintf(buf, 
-                "%s\tCufflinks\ttranscript\t%d\t%d\t%d\t%d\t%s\t.\tgene_id \"%s\"; transcript_id \"%s\"; allele_informative \"%d\"; paternal_FPKM \"%10.10lf\"; maternal_FPKM \"%10.10lf\"; paternal_frac \"%lf\"; maternal_frac \"%lf\"; paternal_conf_lo \"%lf\"; paternal_conf_hi \"%lf\"; maternal_conf_lo \"%lf\"; maternal_conf_hi \"%lf\"; paternal_cov \"%lf\"; maternal_cov \"%lf\";\n",
+                "%s\tCufflinks\ttranscript\t%d\t%d\t%d\t%s\t.\tgene_id \"%s\"; transcript_id \"%s\"; allele_informative \"%d\"; paternal_FPKM \"%10.10lf\"; maternal_FPKM \"%10.10lf\"; paternal_frac \"%lf\"; maternal_frac \"%lf\"; paternal_conf_lo \"%lf\"; paternal_conf_hi \"%lf\"; maternal_conf_lo \"%lf\"; maternal_conf_hi \"%lf\"; paternal_cov \"%lf\"; maternal_cov \"%lf\";\n",
                 ref_name,
                 _scaffold.left() + 1,
                 _scaffold.right(), // GTF intervals are inclusive on both ends, but ours are half-open
-                paternal_score,
-				maternal_score,
+                score,
                 strand_str,
                 gene_id().c_str(),
                 trans_id().c_str(),
@@ -211,13 +208,12 @@ void Isoform::get_allele_gtf(vector<string>& gff_recs,
 		{
 			const char* type = op.opcode == CUFF_MATCH ? "exon" : "missing_data";
 			sprintf(buf, 
-					"%s\tCufflinks\t\%s\t%d\t%d\t%d\t%d\t%s\t.\tgene_id \"%s\"; transcript_id \"%s\"; allele_informative \"%d\"; exon_number \"%d\"; paternal_FPKM \"%10.10lf\"; maternal_FPKM \"%10.10lf\"; paternal_frac \"%lf\"; maternal_frac \"%lf\"; paternal_conf_lo \"%lf\"; paternal_conf_hi \"%lf\"; maternal_conf_lo \"%lf\"; maternal_conf_hi \"%lf\"; paternal_cov \"%lf\"; maternal_cov \"%lf\";\n",
+					"%s\tCufflinks\t\%s\t%d\t%d\t%d\t%s\t.\tgene_id \"%s\"; transcript_id \"%s\"; allele_informative \"%d\"; exon_number \"%d\"; paternal_FPKM \"%10.10lf\"; maternal_FPKM \"%10.10lf\"; paternal_frac \"%lf\"; maternal_frac \"%lf\"; paternal_conf_lo \"%lf\"; paternal_conf_hi \"%lf\"; maternal_conf_lo \"%lf\"; maternal_conf_hi \"%lf\"; paternal_cov \"%lf\"; maternal_cov \"%lf\";\n",
 					ref_name,
 					type,
 					op.g_left() + 1,
 					op.g_right(), // GTF intervals are inclusive on both ends, but ours are half-open
-					paternal_score,
-					maternal_score,
+					score,
 					strand_str,
 					gene_id().c_str(),
 					trans_id().c_str(),
