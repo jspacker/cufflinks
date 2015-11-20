@@ -5142,9 +5142,13 @@ void merge_precomputed_expression_worker(const string& locus_tag,
 
 //BOOST_CLASS_EXPORT(Abundance)
 BOOST_CLASS_EXPORT(TranscriptAbundance)
+BOOST_CLASS_EXPORT(AlleleTranscriptAbundance);
 BOOST_SERIALIZATION_SHARED_PTR(TranscriptAbundance);
+BOOST_SERIALIZATION_SHARED_PTR(AlleleTranscriptAbundance);
 BOOST_CLASS_EXPORT(AbundanceGroup);
+BOOST_CLASS_EXPORT(AlleleAbundanceGroup);
 BOOST_SERIALIZATION_SHARED_PTR(AbundanceGroup);
+BOOST_SERIALIZATION_SHARED_PTR(AlleleAbundanceGroup);
 BOOST_SERIALIZATION_ASSUME_ABSTRACT(Abundance);
 
 //Allele-specific implementations
@@ -5435,56 +5439,49 @@ CountPerReplicateTable AlleleAbundanceGroup::num_maternal_fragments_by_replicate
 
 FPKMPerReplicateTable AlleleAbundanceGroup::paternal_FPKM_by_replicate() const
 {
-	FPKMPerReplicateTable fpr;
-	
-	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
-	{
-		if (fpr.empty())
+    FPKMPerReplicateTable fpr;
+
+    BOOST_FOREACH(boost::shared_ptr<Abundance> ab, _abundances)
+    {
+        FPKMPerReplicateTable ab_fpr = ab->paternal_FPKM_by_replicate();
+
+        for (FPKMPerReplicateTable::const_iterator itr = ab_fpr.begin();
+             itr != ab_fpr.end(); ++itr)
         {
-            fpr = ab->paternal_FPKM_by_replicate();
-        }
-        else
-        {
-            FPKMPerReplicateTable ab_fpr = ab->paternal_FPKM_by_replicate();
-            for (FPKMPerReplicateTable::const_iterator itr = ab_fpr.begin(); 
-                 itr != ab_fpr.end();
-                 ++itr)
-            {
-                FPKMPerReplicateTable::iterator fpr_itr = fpr.find(itr->first);
-                assert (fpr_itr != fpr.end());
+            FPKMPerReplicateTable::iterator fpr_itr = fpr.find(itr->first);
+            if (fpr_itr != fpr.end())
                 fpr_itr->second += itr->second;
-            }
+            else
+                fpr[itr->first] = itr->second;
         }
-	}
-	//assert (fpr.empty() != false);
-	return fpr;
+    }
+
+    //assert (cpr.empty() != false);
+    return fpr;
 }
 
 FPKMPerReplicateTable AlleleAbundanceGroup::maternal_FPKM_by_replicate() const
 {
-	FPKMPerReplicateTable fpr;
-	
-	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, _abundances)
-	{
-		if (fpr.empty())
+    FPKMPerReplicateTable fpr;
+
+    BOOST_FOREACH(boost::shared_ptr<Abundance> ab, _abundances)
+    {
+        FPKMPerReplicateTable ab_fpr = ab->paternal_FPKM_by_replicate();
+
+        for (FPKMPerReplicateTable::const_iterator itr = ab_fpr.begin();
+             itr != ab_fpr.end(); ++itr)
         {
-            fpr = ab->maternal_FPKM_by_replicate();
-        }
-        else
-        {
-            FPKMPerReplicateTable ab_fpr = ab->maternal_FPKM_by_replicate();
-            for (FPKMPerReplicateTable::const_iterator itr = ab_fpr.begin(); 
-                 itr != ab_fpr.end();
-                 ++itr)
-            {
-                FPKMPerReplicateTable::iterator fpr_itr = fpr.find(itr->first);
-                assert (fpr_itr != fpr.end());
+            FPKMPerReplicateTable::iterator fpr_itr = fpr.find(itr->first);
+            if (fpr_itr != fpr.end())
                 fpr_itr->second += itr->second;
-            }
+            else
+                fpr[itr->first] = itr->second;
         }
-	}
-	//assert (fpr.empty() != false);
-	return fpr;
+    }
+
+    //assert (cpr.empty() != false);
+    return fpr;
+
 }
 
 StatusPerReplicateTable AlleleAbundanceGroup::paternal_status_by_replicate() const
@@ -5734,8 +5731,10 @@ void AlleleAbundanceGroup::clear_non_serialized_data()
     std::vector<double>().swap(_fpkm_samples);
     //_member_fpkm_samples.clear();
     //std::vector<Eigen::VectorXd>().swap(_member_fpkm_samples);
-    //_assigned_count_samples.clear();
-    //std::vector<Eigen::VectorXd>().swap(_assigned_count_samples);
+    _assigned_paternal_count_samples.clear();
+    std::vector<Eigen::VectorXd>().swap(_assigned_paternal_count_samples);
+    _assigned_maternal_count_samples.clear();
+    std::vector<Eigen::VectorXd>().swap(_assigned_maternal_count_samples);
 }
 
 void AlleleAbundanceGroup::filter_group(const vector<bool>& to_keep, 
@@ -5994,7 +5993,7 @@ void AlleleAbundanceGroup::collect_per_replicate_mass(const vector<MateHit>& ali
 {
     size_t M = alignments.size();
 	size_t N = transcripts.size();
-	
+
     //_count_per_replicate.clear();
     
     for (map<boost::shared_ptr<ReadGroupProperties const>, double>::iterator itr = _count_per_replicate.begin(); 
@@ -6006,7 +6005,7 @@ void AlleleAbundanceGroup::collect_per_replicate_mass(const vector<MateHit>& ali
     
 	if (transcripts.empty())
 		return;
-    
+
     //map<boost::shared_ptr<ReadGroupProperties const>, double> count_per_replicate;
 
     vector<boost::shared_ptr<Abundance> > mapped_transcripts; // This collects the transcripts that have alignments mapping to them
@@ -9140,6 +9139,315 @@ double compute_doc_allele(int bundle_origin,
 	}
 	
 	return total_doc/(double)total_len;
+}
+
+void AlleleAbundanceGroup::apply_normalization_to_abundances(
+    const map<boost::shared_ptr<const ReadGroupProperties>, boost::shared_ptr<const AlleleAbundanceGroup> >& unnormalized_ab_group_per_replicate,
+    map<boost::shared_ptr<const ReadGroupProperties>, boost::shared_ptr<AlleleAbundanceGroup> >& normalized_ab_group_per_replicate)
+{
+    for (map<boost::shared_ptr<const ReadGroupProperties>, boost::shared_ptr<const AlleleAbundanceGroup> >::const_iterator itr = unnormalized_ab_group_per_replicate.begin();
+         itr != unnormalized_ab_group_per_replicate.end(); ++itr)
+    {
+        boost::shared_ptr<AlleleAbundanceGroup> norm_ab = boost::shared_ptr<AlleleAbundanceGroup>(new AlleleAbundanceGroup(*itr->second));
+        boost::shared_ptr<const ReadGroupProperties> rg_props = itr->first;
+        boost::shared_ptr<const MassDispersionModel> disp_model = rg_props->mass_dispersion_model();
+       
+        // this isn't supposed to ever happen
+        // but it does for some edge case
+        // and I don't have time to figure out why
+        if (itr->second->rg_props().size() == 0)
+        {
+            for (size_t i = 0; i < norm_ab->_abundances.size(); ++i)
+            {
+                norm_ab->_abundances[i]->paternal_status(NUMERIC_FAIL);
+                norm_ab->_abundances[i]->maternal_status(NUMERIC_FAIL);
+
+                norm_ab->_abundances[i]->num_paternal_fragments(0);
+                norm_ab->_abundances[i]->num_maternal_fragments(0);
+                norm_ab->_abundances[i]->paternal_FPKM(0);
+                norm_ab->_abundances[i]->maternal_FPKM(0);               
+            }
+        }
+        else
+        {
+            boost::shared_ptr<const ReadGroupProperties> old_rg_props = *(itr->second->rg_props().begin());
+
+           double fpkm_correction_factor = 1.0;
+            fpkm_correction_factor = old_rg_props->normalized_map_mass() / rg_props->normalized_map_mass();
+        
+            double internal_scale_factor = rg_props->internal_scale_factor();
+        
+            double total_mass = 0.0;
+        
+            for (size_t i = 0; i < norm_ab->_abundances.size(); ++i)
+            {
+                norm_ab->_abundances[i]->num_paternal_fragments(itr->second->_abundances[i]->num_paternal_fragments() / internal_scale_factor);
+                norm_ab->_abundances[i]->num_maternal_fragments(itr->second->_abundances[i]->num_maternal_fragments() / internal_scale_factor);            
+
+                total_mass += norm_ab->_abundances[i]->num_paternal_fragments() + norm_ab->_abundances[i]->num_maternal_fragments();
+
+                norm_ab->_abundances[i]->paternal_FPKM(fpkm_correction_factor * itr->second->_abundances[i]->paternal_FPKM() / internal_scale_factor);
+                norm_ab->_abundances[i]->maternal_FPKM(fpkm_correction_factor * itr->second->_abundances[i]->maternal_FPKM() / internal_scale_factor);
+                norm_ab->_iterated_exp_parental_count_covariance = norm_ab->iterated_count_cov() / (internal_scale_factor*internal_scale_factor);
+                norm_ab->_parental_fpkm_covariance = norm_ab->_parental_fpkm_covariance * (fpkm_correction_factor * fpkm_correction_factor)/ (internal_scale_factor*internal_scale_factor);
+                norm_ab->_parental_count_covariance = norm_ab->_parental_count_covariance / (internal_scale_factor*internal_scale_factor);
+            }
+
+            double locus_mass_variance = disp_model->scale_mass_variance(total_mass);
+        
+            for (size_t i = 0; i < norm_ab->_abundances.size(); ++i)
+            {
+                norm_ab->_abundances[i]->paternal_mass_variance(locus_mass_variance * norm_ab->_abundances[i]->paternal_gamma());
+                norm_ab->_abundances[i]->maternal_mass_variance(locus_mass_variance * norm_ab->_abundances[i]->maternal_gamma());
+            }
+        }
+
+        normalized_ab_group_per_replicate[itr->first] = norm_ab;
+    }
+}
+
+void merge_precomputed_expression_worker(const string& locus_tag,
+                                         const vector<boost::shared_ptr<AllelePrecomputedExpressionBundleFactory> >& expression_factories,
+                                         SampleAlleleAbundances& sample,
+                                         boost::shared_ptr<HitBundle> sample_bundle,
+                                         bool perform_cds_analysis,
+                                         bool perform_tss_analysis,
+                                         bool calculate_variance)
+{
+    map<boost::shared_ptr<const ReadGroupProperties>, boost::shared_ptr<const AlleleAbundanceGroup> > unnormalized_ab_group_per_replicate;
+    map<boost::shared_ptr<const ReadGroupProperties>, boost::shared_ptr<AlleleAbundanceGroup> > normalized_ab_group_per_replicate;
+    map<boost::shared_ptr<const ReadGroupProperties>, boost::shared_ptr<const AlleleAbundanceGroup> > const_ab_group_per_replicate;
+
+    set<boost::shared_ptr<const ReadGroupProperties> > rg_props;
+    for (size_t i = 0; i < expression_factories.size(); ++i)
+    {
+        boost::shared_ptr<AllelePrecomputedExpressionBundleFactory> pBundleFac = expression_factories[i];
+        boost::shared_ptr<const AllelePrecomputedExpressionHitFactory> pHitFac = dynamic_pointer_cast<const AllelePrecomputedExpressionHitFactory> (pBundleFac->hit_factory());
+        assert (pHitFac);
+        
+        boost::shared_ptr<const ReadGroupProperties> rg_prop = pBundleFac->read_group_properties();
+        rg_props.insert(rg_prop);
+        
+        boost::shared_ptr<const AlleleAbundanceGroup> ab = pBundleFac->get_abundance_for_locus(sample_bundle->id());
+        pBundleFac->clear_abundance_for_locus(sample_bundle->id());
+        if (!ab)
+        {
+            fprintf(stderr, "Error: no bundle with id %d in precomputed expression file\n", sample_bundle->id());
+        }
+        else if(ab->abundances().size() != sample_bundle->ref_scaffolds().size())
+        {
+            fprintf(stderr, "Error: bad bundle merge %s != %s\n", ab->description().c_str(), locus_tag.c_str());
+        }
+        unnormalized_ab_group_per_replicate[rg_prop] = ab;
+    }
+
+    AlleleAbundanceGroup::apply_normalization_to_abundances(unnormalized_ab_group_per_replicate, normalized_ab_group_per_replicate);
+
+    for (map<boost::shared_ptr<const ReadGroupProperties>, boost::shared_ptr<AlleleAbundanceGroup> >::const_iterator itr = normalized_ab_group_per_replicate.begin();
+         itr != normalized_ab_group_per_replicate.end(); ++itr)
+    {
+        const_ab_group_per_replicate[itr->first] = itr->second;
+    }
+
+    vector<boost::shared_ptr<Abundance> > abundances;
+    
+    BOOST_FOREACH(boost::shared_ptr<Scaffold> s, sample_bundle->ref_scaffolds())
+    {
+        AlleleTranscriptAbundance* pT = new AlleleTranscriptAbundance;
+        pT->transfrag(s);
+        pT->set_allele_informative();
+        boost::shared_ptr<Abundance> ab(pT);
+        ab->description(s->annotated_trans_id());
+        ab->locus_tag(locus_tag);
+        abundances.push_back(ab);
+    }
+    
+    sample.transcripts = AlleleAbundanceGroup(abundances);
+    
+    sample.transcripts.init_rg_props(rg_props);
+    
+    vector<MateHit> hits_in_cluster;
+    
+    if (sample_bundle->hits().size() < (size_t)max_frags_per_bundle)
+    {
+        sample.transcripts.collect_per_replicate_mass(const_ab_group_per_replicate);
+        sample.transcripts.aggregate_replicate_abundances(const_ab_group_per_replicate);
+        if (calculate_variance)
+        {
+            fprintf(stderr, "Error: merge_precomputed_expression_worker should not be called with calculate_variance=TRUE if using --allele-specific-abundance-estimation\n");
+            exit(1);
+            //sample.transcripts.calculate_abundance_group_variance(abundances, const_ab_group_per_replicate);
+        }
+    }
+    else // FIXME: THIS needs to do the right thing with sample.transcripts...
+    {
+        fprintf(stderr, "%s\tQORK\n", locus_tag.c_str());
+        BOOST_FOREACH(boost::shared_ptr<Abundance>  ab, abundances)
+        {
+            ab->status(NUMERIC_HI_DATA);
+            
+            CountPerReplicateTable p_cpr, m_cpr;
+            FPKMPerReplicateTable p_fpr, m_fpr;
+            StatusPerReplicateTable p_spr, m_spr;
+            for (set<boost::shared_ptr<ReadGroupProperties const> >::const_iterator itr = rg_props.begin();
+                 itr != rg_props.end();
+                 ++itr)
+            {
+                p_cpr[*itr] = 0;
+                m_cpr[*itr] = 0;
+                p_fpr[*itr] = 0;
+                m_fpr[*itr] = 0;
+                p_spr[*itr] = NUMERIC_HI_DATA;
+                m_spr[*itr] = NUMERIC_HI_DATA;
+            }
+            ab->num_paternal_fragments_by_replicate(p_cpr);
+            ab->num_maternal_fragments_by_replicate(m_cpr);
+            ab->paternal_FPKM_by_replicate(p_fpr);
+            ab->maternal_FPKM_by_replicate(m_fpr);
+            ab->paternal_status_by_replicate(p_spr);
+            ab->maternal_status_by_replicate(m_spr);
+        }
+    }
+    
+    // Cluster transcripts by gene_id
+    vector<AlleleAbundanceGroup> transcripts_by_gene_id;
+    cluster_transcripts<ConnectByAnnotatedGeneId>(sample.transcripts,
+                                                  transcripts_by_gene_id);
+
+	BOOST_FOREACH(AlleleAbundanceGroup& ab_group, transcripts_by_gene_id)
+    {
+        ab_group.locus_tag(locus_tag);
+        set<string> gene_ids = ab_group.gene_id();
+        assert (gene_ids.size() == 1);
+        ab_group.description(*(gene_ids.begin()));
+    }
+
+    sample.genes = transcripts_by_gene_id;
+    
+    if (perform_cds_analysis)
+    {
+        fprintf(stderr, "CDS analysis not supported with --allele-specific-abundance-estimation\n");
+        exit(1);
+        //cds_analyis(locus_tag, sample);
+    }
+    
+    if (perform_tss_analysis)
+    {
+        fprintf(stderr, "TSS analysis not supported with --allele-specific-abundance-estimation\n");
+        exit(1);
+        //tss_analysis(locus_tag, sample);
+    }
+}
+
+void AlleleAbundanceGroup::aggregate_replicate_abundances(const map<boost::shared_ptr<ReadGroupProperties const >, boost::shared_ptr<const AlleleAbundanceGroup> >& ab_group_per_replicate)
+{
+    for (size_t i = 0; i < _abundances.size(); ++i)
+    {
+        CountPerReplicateTable p_cpr;
+        CountPerReplicateTable m_cpr;
+        FPKMPerReplicateTable p_fpr;
+        FPKMPerReplicateTable m_fpr;
+        StatusPerReplicateTable p_spr;
+        StatusPerReplicateTable m_spr;
+        
+        double p_avg_fpkm = 0.0;
+        double p_avg_num_frags = 0.0;
+        double p_avg_gamma = 0.0;
+        double p_avg_mass_variance = 0.0;
+        double p_avg_effective_length = 0.0;
+        double m_avg_fpkm = 0.0;
+        double m_avg_num_frags = 0.0;
+        double m_avg_gamma = 0.0;
+        double m_avg_mass_variance = 0.0;
+        double m_avg_effective_length = 0.0;        
+
+        map<AbundanceStatus, int> p_status_table;
+        p_status_table[NUMERIC_OK] = 0;
+        p_status_table[NUMERIC_LOW_DATA] = 0;
+        p_status_table[NUMERIC_FAIL] = 0;
+        p_status_table[NUMERIC_HI_DATA] = 0;
+        map<AbundanceStatus, int> m_status_table;
+        m_status_table[NUMERIC_OK] = 0;
+        m_status_table[NUMERIC_LOW_DATA] = 0;
+        m_status_table[NUMERIC_FAIL] = 0;
+        m_status_table[NUMERIC_HI_DATA] = 0;
+        
+        for (std::map<boost::shared_ptr<ReadGroupProperties const >, boost::shared_ptr<const AlleleAbundanceGroup> >::const_iterator itr = ab_group_per_replicate.begin();
+             itr != ab_group_per_replicate.end();
+             ++itr)
+        {
+            p_status_table[itr->second->abundances()[i]->paternal_status()] += 1;
+            m_status_table[itr->second->abundances()[i]->maternal_status()] += 1;
+        }
+        
+        for (std::map<boost::shared_ptr<ReadGroupProperties const >, boost::shared_ptr<const AlleleAbundanceGroup> >::const_iterator itr = ab_group_per_replicate.begin();
+             itr != ab_group_per_replicate.end();
+             ++itr)
+        {
+            const vector<boost::shared_ptr<Abundance> >& sc_ab = itr->second->abundances();
+            assert(itr->second->abundances().size() == _abundances.size());
+            p_cpr[itr->first] = itr->second->abundances()[i]->num_paternal_fragments();
+            p_fpr[itr->first] = itr->second->abundances()[i]->paternal_FPKM();
+            p_spr[itr->first] = itr->second->abundances()[i]->paternal_status();
+            m_cpr[itr->first] = itr->second->abundances()[i]->num_maternal_fragments();
+            m_fpr[itr->first] = itr->second->abundances()[i]->maternal_FPKM();
+            m_spr[itr->first] = itr->second->abundances()[i]->maternal_status();
+            
+            p_avg_fpkm += itr->second->abundances()[i]->paternal_FPKM() / (double)ab_group_per_replicate.size();
+            p_avg_num_frags += itr->second->abundances()[i]->num_paternal_fragments() / (double)ab_group_per_replicate.size();
+            p_avg_gamma += itr->second->abundances()[i]->paternal_gamma() / (double)ab_group_per_replicate.size();
+            p_avg_mass_variance += itr->second->abundances()[i]->paternal_mass_variance() / (double)ab_group_per_replicate.size();
+            p_avg_effective_length += itr->second->abundances()[i]->paternal_effective_length() / (double)ab_group_per_replicate.size();
+            m_avg_fpkm += itr->second->abundances()[i]->maternal_FPKM() / (double)ab_group_per_replicate.size();
+            m_avg_num_frags += itr->second->abundances()[i]->num_maternal_fragments() / (double)ab_group_per_replicate.size();
+            m_avg_gamma += itr->second->abundances()[i]->maternal_gamma() / (double)ab_group_per_replicate.size();
+            m_avg_mass_variance += itr->second->abundances()[i]->maternal_mass_variance() / (double)ab_group_per_replicate.size();
+            m_avg_effective_length += itr->second->abundances()[i]->maternal_effective_length() / (double)ab_group_per_replicate.size();
+        }
+        
+        _abundances[i]->paternal_FPKM(p_avg_fpkm);
+        _abundances[i]->paternal_gamma(p_avg_gamma);
+        _abundances[i]->num_paternal_fragments(p_avg_num_frags);
+        _abundances[i]->paternal_mass_variance(p_avg_mass_variance);
+        _abundances[i]->paternal_effective_length(p_avg_effective_length);
+        _abundances[i]->maternal_FPKM(m_avg_fpkm);
+        _abundances[i]->maternal_gamma(m_avg_gamma);
+        _abundances[i]->num_maternal_fragments(m_avg_num_frags);
+        _abundances[i]->maternal_mass_variance(m_avg_mass_variance);
+        _abundances[i]->maternal_effective_length(m_avg_effective_length);
+        
+        // if there was at least one good replicate, set the status to OK.  The reduced power will be reflected
+        // during testing
+        if (p_status_table[NUMERIC_OK] >= 1) {
+            _abundances[i]->paternal_status(NUMERIC_OK);
+        } else {
+            if (p_status_table[NUMERIC_LOW_DATA] >= p_status_table[NUMERIC_FAIL]) {
+                _abundances[i]->paternal_status(NUMERIC_LOW_DATA);
+            } else if (p_status_table[NUMERIC_HI_DATA] >= p_status_table[NUMERIC_FAIL]) {
+                _abundances[i]->paternal_status(NUMERIC_HI_DATA);
+            } else {
+                _abundances[i]->paternal_status(NUMERIC_FAIL);
+            }
+        }
+        if (m_status_table[NUMERIC_OK] >= 1) {
+            _abundances[i]->maternal_status(NUMERIC_OK);
+        } else {
+            if (m_status_table[NUMERIC_LOW_DATA] >= m_status_table[NUMERIC_FAIL]) {
+                _abundances[i]->maternal_status(NUMERIC_LOW_DATA);
+            } else if (m_status_table[NUMERIC_HI_DATA] >= m_status_table[NUMERIC_FAIL]) {
+                _abundances[i]->maternal_status(NUMERIC_HI_DATA);
+            } else {
+                _abundances[i]->maternal_status(NUMERIC_FAIL);
+            }
+        }
+        
+        _abundances[i]->num_paternal_fragments_by_replicate(p_cpr);
+        _abundances[i]->paternal_FPKM_by_replicate(p_fpr);
+        _abundances[i]->paternal_status_by_replicate(p_spr);
+        _abundances[i]->num_maternal_fragments_by_replicate(m_cpr);
+        _abundances[i]->maternal_FPKM_by_replicate(m_fpr);
+        _abundances[i]->maternal_status_by_replicate(m_spr);
+    }
 }
 
 void allele_impl_error()

@@ -1121,12 +1121,14 @@ public:
         void paternal_FPKM(double fpkm)                  
 	{ 
 		_paternal_FPKM = fpkm;
-		_transfrag->paternal_fpkm(fpkm);
+                if (_transfrag)
+		    _transfrag->paternal_fpkm(fpkm);
 	}
 	void maternal_FPKM(double fpkm)                  
 	{ 
 		_maternal_FPKM = fpkm;
-		_transfrag->maternal_fpkm(fpkm);
+                if (_transfrag)
+		    _transfrag->maternal_fpkm(fpkm);
 	}
 
 	double FPKM_variance() const { allele_impl_error(); return 0.0;  }
@@ -1661,10 +1663,27 @@ public:
             _count_per_replicate[*itr] = 0;
         }
     }
+
+    void collect_per_replicate_mass(std::map<boost::shared_ptr<ReadGroupProperties const >, boost::shared_ptr<const AlleleAbundanceGroup> >& ab_group_per_replicate)
+    {
+        _count_per_replicate.clear();
+        for (std::map<boost::shared_ptr<ReadGroupProperties const >, boost::shared_ptr<const AlleleAbundanceGroup> >::const_iterator itr = ab_group_per_replicate.begin();
+             itr != ab_group_per_replicate.end(); ++itr)
+        {
+            _count_per_replicate[itr->first] = itr->second->num_paternal_fragments() + itr->second->num_maternal_fragments();
+        }
+    }
+
+    static void apply_normalization_to_abundances(
+        const map<boost::shared_ptr<const ReadGroupProperties>, boost::shared_ptr<const AlleleAbundanceGroup> >& unnormalized_ab_group_per_replicate,
+        map<boost::shared_ptr<const ReadGroupProperties>, boost::shared_ptr<AlleleAbundanceGroup> >& normalized_ab_group_per_replicate);
    
     void clear_non_serialized_data();
+
+    void aggregate_replicate_abundances(const std::map<boost::shared_ptr<ReadGroupProperties const >, boost::shared_ptr<const AlleleAbundanceGroup> >& ab_group_per_replicate);
  
     bool is_allele_informative() const { fprintf(stderr, "Error: AlleleAbundanceGroup is_allele_informative()\n"); exit(1); }
+
 private:
 	
 	void FPKM_conf(const ConfidenceInterval& cf)  { }
@@ -1882,5 +1901,15 @@ void sample_abundance_worker(const string& locus_tag,
                              bool perform_cds_analysis,
                              bool perform_tss_analysis,
                              bool calculate_variance);
+
+void merge_precomputed_expression_worker(const string& locus_tag,
+                                         const vector<boost::shared_ptr<AllelePrecomputedExpressionBundleFactory> >& expression_factories,
+                                         SampleAlleleAbundances& sample,
+                                         boost::shared_ptr<HitBundle> sample_bundle,
+                                         bool perform_cds_analysis,
+                                         bool perform_tss_analysis,
+                                         bool calculate_variance);
+
+
 
 #endif

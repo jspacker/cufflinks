@@ -1614,5 +1614,170 @@ boost::shared_ptr<const AbundanceGroup> PrecomputedExpressionHitFactory::next_lo
     return sought_group;
 }
 
+void AllelePrecomputedExpressionHitFactory::load_count_tables(const string& expression_file_name)
+{
+    std::ifstream ifs(expression_file_name.c_str());
+    boost::archive::binary_iarchive ia(ifs);
+    
+    size_t num_loci = 0;
+    ia >> num_loci;
+    
+    if (num_loci > 0)
+    {
+        pair<int, AlleleAbundanceGroup> first_locus;
+        ia >> first_locus;
+        boost::shared_ptr<AlleleAbundanceGroup> ab = boost::shared_ptr<AlleleAbundanceGroup>(new AlleleAbundanceGroup(first_locus.second));
+        
+        // populate the cached count tables so we can make convincing fake bundles later on.
+        ReadGroupProperties rg_props = **(ab->rg_props().begin());
+
+        int i = 0;
+        BOOST_FOREACH(const LocusCount& c, rg_props.raw_compatible_counts())
+        {
+            compat_mass[i++] = c.count;
+            //compat_mass[c.locus_desc] = c.count;
+        }
+
+        i = 0;
+        BOOST_FOREACH(const LocusCount& c, rg_props.raw_total_counts())
+        {
+            total_mass[i++] = c.count;
+            //total_mass[c.locus_desc] = c.count;
+        }
+    }
+}
+
+void AllelePrecomputedExpressionHitFactory::load_checked_parameters(const string& expression_file_name)
+{
+    std::ifstream ifs(expression_file_name.c_str());
+    boost::archive::binary_iarchive ia(ifs);
+    
+    size_t num_loci = 0;
+    ia >> num_loci;
+    
+    if (num_loci > 0)
+    {
+        pair<int, AlleleAbundanceGroup> first_locus;
+        ia >> first_locus;
+        boost::shared_ptr<AlleleAbundanceGroup> ab = boost::shared_ptr<AlleleAbundanceGroup>(new AlleleAbundanceGroup(first_locus.second));
+        
+        // populate the cached count tables so we can make convincing fake bundles later on.
+        ReadGroupProperties rg_props = **(ab->rg_props().begin());
+        _rg_props.checked_parameters(rg_props.checked_parameters());
+    }
+}
+
+bool AllelePrecomputedExpressionHitFactory::next_record(const char*& buf, size_t& buf_size)
+{
+	return false;
+}
+
+bool AllelePrecomputedExpressionHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
+									 ReadHit& bh,
+									 bool strip_slash,
+									 char* name_out,
+									 char* name_tags)
+{
+	return false;
+}
+
+bool AllelePrecomputedExpressionHitFactory::inspect_header()
+{
+    
+    std::ifstream ifs(_expression_file_name.c_str());
+    boost::archive::binary_iarchive ia(ifs);
+
+    RefSequenceTable& rt = ref_table();
+    
+    size_t num_loci = 0;
+    ia >> num_loci;
+    
+    for (size_t i = 0; i < num_loci; ++i)
+    {
+        pair<int, AlleleAbundanceGroup> locus;
+
+        ia >> locus;
+        boost::shared_ptr<AlleleAbundanceGroup> ab = boost::shared_ptr<AlleleAbundanceGroup>(new AlleleAbundanceGroup(locus.second));
+        
+        const string locus_tag = ab->locus_tag();
+        
+        string::size_type idx = locus_tag.find(':');
+        if (idx != string::npos)
+        {
+            string chrom_name = locus_tag.substr(0, idx);
+            rt.get_id(chrom_name.c_str(), NULL); // make sure the chromosome names are added to the RefSequenceTable in the order that they occur in the expression files.
+        }
+    }
+    
+    return true;
+}
+
+boost::shared_ptr<const AlleleAbundanceGroup> AllelePrecomputedExpressionHitFactory::get_abundance_for_locus(int locus_id)
+{
+#if ENABLE_THREADS
+    boost::mutex::scoped_lock lock(_factory_lock);
+#endif
+    map<int, boost::shared_ptr<const AlleleAbundanceGroup> >::const_iterator itr = _curr_ab_groups.find(locus_id);
+    if (itr != _curr_ab_groups.end())
+        return itr->second;
+    else
+        return boost::shared_ptr<const AlleleAbundanceGroup>();
+}
+
+void AllelePrecomputedExpressionHitFactory::clear_abundance_for_locus(int locus_id)
+{
+#if ENABLE_THREADS
+    boost::mutex::scoped_lock lock(_factory_lock);
+#endif
+
+    map<int, boost::shared_ptr<const AlleleAbundanceGroup> >::iterator itr = _curr_ab_groups.find(locus_id);
+    
+    if (itr != _curr_ab_groups.end())
+        _curr_ab_groups.erase(itr);
+}
+
+boost::shared_ptr<const AlleleAbundanceGroup> AllelePrecomputedExpressionHitFactory::next_locus(int locus_id, bool cache_locus)
+{
+#if ENABLE_THREADS
+    boost::mutex::scoped_lock lock(_factory_lock);
+#endif
+//    if (locus_id == 7130)
+//    {
+//        fprintf(stderr, "Trying to get a chr13_random\n");
+//    }
+    
+    if (_last_locus_id >= locus_id)
+        return boost::shared_ptr<const AlleleAbundanceGroup>(); // we already processed this one
+    
+    boost::shared_ptr<const AlleleAbundanceGroup> sought_group;
+    
+    map<int, boost::shared_ptr<const AlleleAbundanceGroup> >::iterator itr = _curr_ab_groups.find(locus_id);
+    
+    if (itr != _curr_ab_groups.end())
+        return itr->second;
+    
+    for (;_curr_locus_idx < _num_loci; ++_curr_locus_idx)
+    {
+        pair<int, AlleleAbundanceGroup> p;
+        *_ia >> p;
+        _last_locus_id = p.first;
+        boost::shared_ptr<AlleleAbundanceGroup> ab = boost::shared_ptr<AlleleAbundanceGroup>(new AlleleAbundanceGroup(p.second));
+        if (_last_locus_id == locus_id)
+        {
+            sought_group = ab;
+            break;
+        }
+        else // we don't want to lose this one...
+        {
+            if (cache_locus)
+                _curr_ab_groups[_last_locus_id] = ab;
+        }
+    }
+    if (cache_locus)
+        _curr_ab_groups[locus_id] = sought_group;
+    
+    return sought_group;
+}
+
 
 

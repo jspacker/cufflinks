@@ -72,6 +72,8 @@ static struct option long_options[] = {
 {"no-update-check",         no_argument,             0,          OPT_NO_UPDATE_CHECK},
 {"compatible-hits-norm",    no_argument,	 		 0,	         OPT_USE_COMPAT_MASS},
 {"total-hits-norm",         no_argument,	 		 0,	         OPT_USE_TOTAL_MASS},
+{"allele-specific-abundance-estimation",  no_argument,     0,    OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION},
+{"input-vcf", required_argument, 0, OPT_INPUT_VCF },
     
 // Some options for testing different stats policies
 {"max-bundle-frags",        required_argument,       0,          OPT_MAX_FRAGS_PER_BUNDLE}, 
@@ -98,6 +100,8 @@ void print_usage()
     fprintf(stderr, "  --library-type               Library prep used for input reads                     [ default:  below ]\n");
     fprintf(stderr, "  --library-norm-method        Method used to normalize library sizes                [ default:  below ]\n");
     fprintf(stderr, "  --output-format              Format for output tables                              [ default:  below ]\n");
+    fprintf(stderr, "  --allele-specific-abundance-estimation   Estimation of allele specific isoform aundances [ default:  FALSE ]\n");
+    fprintf(stderr, "  --input-vcf                  phased VCF used to assign reads to alleles if they aren't already phased\n");
     
     fprintf(stderr, "\nAdvanced Options:\n");
     fprintf(stderr, "  --compatible-hits-norm       count hits compatible with reference RNAs only        [ default:   TRUE ]\n");
@@ -215,6 +219,16 @@ int parse_options(int argc, char** argv)
 				output_format_str = optarg;
 				break;
 			}
+            case OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION:
+            {   
+                allele_specific_abundance_estimation = true;
+                break;
+            }
+            case OPT_INPUT_VCF:
+            {
+                input_vcf = optarg;
+                break;
+            } 
 			default:
 				print_usage();
 				return 1;
@@ -340,6 +354,7 @@ void inspect_map_worker(ReplicatedBundleFactory& fac,
 }
 
 boost::shared_ptr<TrackingDataWriter> tracking_data_writer;
+boost::shared_ptr<AlleleTrackingDataWriter> allele_tracking_data_writer;
 
 bool quantitate_next_locus(const RefSequenceTable& rt,
                            vector<boost::shared_ptr<ReplicatedBundleFactory> >& bundle_factories,
@@ -408,6 +423,78 @@ bool quantitate_next_locus(const RefSequenceTable& rt,
                       i,
                       launcher,
                       false);
+#endif
+    }
+    return true;
+}
+
+bool quantitate_next_locus(const RefSequenceTable& rt,
+                           vector<boost::shared_ptr<ReplicatedBundleFactory> >& bundle_factories,
+                           boost::shared_ptr<AlleleTestLauncher> launcher)
+{
+    for (size_t i = 0; i < bundle_factories.size(); ++i)
+    {
+        boost::shared_ptr<SampleAlleleAbundances> s_ab = boost::shared_ptr<SampleAlleleAbundances>(new SampleAlleleAbundances);
+        
+#if ENABLE_THREADS					
+        while(1)
+        {
+            locus_thread_pool_lock.lock();
+            if (locus_curr_threads < locus_num_threads)
+            {
+                break;
+            }
+            
+            locus_thread_pool_lock.unlock();
+            
+            boost::this_thread::sleep(boost::posix_time::milliseconds(5));
+            
+        }
+        
+        locus_curr_threads++;
+        locus_thread_pool_lock.unlock();
+        
+        boost::shared_ptr<HitBundle> pBundle = boost::shared_ptr<HitBundle>(new HitBundle());
+        bool non_empty = bundle_factories[i]->next_bundle(*pBundle, true);
+        
+        if (pBundle->compatible_mass() > 0)
+        {
+            thread quantitate(allele_sample_worker,
+                              non_empty,
+                              pBundle,
+                              boost::ref(rt),
+                              boost::ref(*(bundle_factories[i])),
+                              s_ab,
+                              i,
+                              launcher,
+                              false);
+        }
+        else
+        {
+            allele_sample_worker(non_empty,
+                                 pBundle,
+                                 boost::ref(rt),
+                                 boost::ref(*(bundle_factories[i])),
+                                 s_ab,
+                                 i,
+                                 launcher,
+                                 false);
+            locus_thread_pool_lock.lock();
+            locus_curr_threads--;
+            locus_thread_pool_lock.unlock();
+        }
+#else
+        boost::shared_ptr<HitBundle> pBundle = boost::shared_ptr<HitBundle>(new HitBundle());
+        bool non_empty = bundle_factories[i]->next_bundle(*pBundle, true);
+        
+        allele_sample_worker(non_empty,
+                             pBundle,
+                             boost::ref(rt),
+                             boost::ref(*(bundle_factories[i])),
+                             s_ab,
+                             i,
+                             launcher,
+                             false);
 #endif
     }
     return true;
@@ -551,8 +638,13 @@ void print_variability_models(FILE* var_model_out, const vector<boost::shared_pt
 
 }
 
-void driver(FILE* ref_gtf, FILE* mask_gtf, FILE* contrast_file, FILE* norm_standards_file, vector<string>& sam_hit_filename_lists, Outfiles& outfiles)
+void driver(FILE* ref_gtf, FILE* mask_gtf, string input_vcf, FILE* contrast_file, FILE* norm_standards_file, vector<string>& sam_hit_filename_lists, Outfiles& outfiles)
 {
+        // chr -> pos -> (paternal allele, maternal allele)
+	map<string, map<int, pair<char, char> > > snps;
+	if (input_vcf != "") {
+		load_vcf(input_vcf, snps);
+	}
 
 	ReadTable it;
 	RefSequenceTable rt(true, false);
@@ -562,7 +654,7 @@ void driver(FILE* ref_gtf, FILE* mask_gtf, FILE* contrast_file, FILE* norm_stand
 	vector<boost::shared_ptr<ReplicatedBundleFactory> > bundle_factories;
     vector<boost::shared_ptr<ReadGroupProperties> > all_read_groups;
     set<boost::shared_ptr<ReadGroupProperties> > serialized_read_groups;
-    
+
 	for (size_t i = 0; i < sam_hit_filename_lists.size(); ++i)
 	{
         vector<string> sam_hit_filenames;
@@ -578,15 +670,20 @@ void driver(FILE* ref_gtf, FILE* mask_gtf, FILE* contrast_file, FILE* norm_stand
             boost::shared_ptr<BundleFactory> hf;
             try
             {
-                hs = boost::shared_ptr<HitFactory>(new PrecomputedExpressionHitFactory(sam_hit_filenames[j], it, rt));
-                hf = boost::shared_ptr<BundleFactory>(new PrecomputedExpressionBundleFactory(static_pointer_cast<PrecomputedExpressionHitFactory>(hs)));
+                if (allele_specific_abundance_estimation) {
+                    hs = boost::shared_ptr<HitFactory>(new AllelePrecomputedExpressionHitFactory(sam_hit_filenames[j], it, rt));
+                    hf = boost::shared_ptr<BundleFactory>(new AllelePrecomputedExpressionBundleFactory(static_pointer_cast<AllelePrecomputedExpressionHitFactory>(hs)));
+                } else {
+                    hs = boost::shared_ptr<HitFactory>(new PrecomputedExpressionHitFactory(sam_hit_filenames[j], it, rt));
+                    hf = boost::shared_ptr<BundleFactory>(new PrecomputedExpressionBundleFactory(static_pointer_cast<PrecomputedExpressionHitFactory>(hs)));
+                }
             }
             
             catch(boost::archive::archive_exception & e)
             {
                 try
                 {
-                    hs = boost::shared_ptr<HitFactory>(new BAMHitFactory(sam_hit_filenames[j], it, rt));
+                    hs = boost::shared_ptr<HitFactory>(new BAMHitFactory(sam_hit_filenames[j], it, rt, &snps));
                 }
                 catch (std::runtime_error& e) 
                 {
@@ -594,7 +691,7 @@ void driver(FILE* ref_gtf, FILE* mask_gtf, FILE* contrast_file, FILE* norm_stand
                     {
 //                        fprintf(stderr, "File %s doesn't appear to be a valid BAM file, trying SAM...\n",
 //                                sam_hit_filenames[j].c_str());
-                        hs = boost::shared_ptr<HitFactory>(new SAMHitFactory(sam_hit_filenames[j], it, rt));
+                        hs = boost::shared_ptr<HitFactory>(new SAMHitFactory(sam_hit_filenames[j], it, rt, &snps));
                     }
                     catch (std::runtime_error& e)
                     {
@@ -605,7 +702,6 @@ void driver(FILE* ref_gtf, FILE* mask_gtf, FILE* contrast_file, FILE* norm_stand
                 }
                 hf = boost::shared_ptr<BundleFactory>(new BundleFactory(hs, REF_DRIVEN));
             }
-            
             
             boost::shared_ptr<ReadGroupProperties> rg_props(new ReadGroupProperties);
             
@@ -633,7 +729,7 @@ void driver(FILE* ref_gtf, FILE* mask_gtf, FILE* contrast_file, FILE* norm_stand
         
         bundle_factories.push_back(boost::shared_ptr<ReplicatedBundleFactory>(new ReplicatedBundleFactory(replicate_factories, condition_name)));
 	}
-    
+   
     boost::crc_32_type ref_gtf_crc_result;
     ::load_ref_rnas(ref_gtf, rt, ref_mRNAs, ref_gtf_crc_result, corr_bias, false);
     if (ref_mRNAs.empty())
@@ -724,7 +820,7 @@ void driver(FILE* ref_gtf, FILE* mask_gtf, FILE* contrast_file, FILE* norm_stand
 #endif
     
     normalize_counts(all_read_groups);
-    
+
     long double total_norm_mass = 0.0;
     long double total_mass = 0.0;
     BOOST_FOREACH (boost::shared_ptr<ReadGroupProperties> rg_props, all_read_groups)
@@ -747,7 +843,52 @@ void driver(FILE* ref_gtf, FILE* mask_gtf, FILE* contrast_file, FILE* norm_stand
     
 	final_est_run = true;
 	p_bar = ProgressBar("Normalizing expression levels for locus", num_bundles);
-                                                     
+   
+    if (allele_specific_abundance_estimation)
+    {
+        allele_tracking_data_writer = boost::shared_ptr<AlleleTrackingDataWriter>(new AlleleTrackingDataWriter(bundle_factories.size(), &outfiles, &tracking, all_read_groups, sample_labels, &p_bar, id_to_locus_map));
+
+        while (true)
+        {
+            quantitate_next_locus(rt, bundle_factories, allele_tracking_data_writer);
+            bool more_loci_remain = false;
+            BOOST_FOREACH (boost::shared_ptr<ReplicatedBundleFactory> rep_fac, bundle_factories)
+            {
+                if (rep_fac->bundles_remain())
+                {
+                    more_loci_remain = true;
+                    break;
+                }
+            }
+
+            if (!more_loci_remain)
+            {
+                // wait for the workers to finish up before doing the cross-sample testing.
+#if ENABLE_THREADS	
+                while(1)
+                {
+                    locus_thread_pool_lock.lock();
+                    if (locus_curr_threads == 0)
+                    {
+                        locus_thread_pool_lock.unlock();
+                        break;
+                    }
+                
+                    locus_thread_pool_lock.unlock();
+                
+                    boost::this_thread::sleep(boost::posix_time::milliseconds(5));
+                
+                }
+#endif
+                break;
+            }
+        }
+	
+	p_bar.complete();
+    }
+    else
+    {
+                                                  
     tracking_data_writer = boost::shared_ptr<TrackingDataWriter>(new TrackingDataWriter(bundle_factories.size(), &outfiles, &tracking, all_read_groups, sample_labels, &p_bar, id_to_locus_map));
     
 	while (true)
@@ -786,8 +927,8 @@ void driver(FILE* ref_gtf, FILE* mask_gtf, FILE* contrast_file, FILE* norm_stand
         }
     }
 	
-	p_bar.complete();
-    
+	p_bar.complete();  
+    }
 }
 
 void open_outfiles_for_writing_cuffdiff_format(Outfiles& outfiles)
@@ -1302,7 +1443,7 @@ int main(int argc, char** argv)
 
     open_outfiles_for_writing(outfiles);
     
-    driver(ref_gtf, mask_gtf, contrast_file, norm_standards_file, sam_hit_filenames, outfiles);
+    driver(ref_gtf, mask_gtf, input_vcf, contrast_file, norm_standards_file, sam_hit_filenames, outfiles);
 	
 #if 0
     if (emit_count_tables)

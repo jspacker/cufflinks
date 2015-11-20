@@ -2131,4 +2131,74 @@ void PrecomputedExpressionBundleFactory::clear_abundance_for_locus(int locus_id)
     _hit_fac->clear_abundance_for_locus(locus_id);
 }
 
+bool AllelePrecomputedExpressionBundleFactory::next_bundle(HitBundle& bundle, bool cache_bundle)
+{
+#if ENABLE_THREADS
+    boost::mutex::scoped_lock lock(_factory_lock);
+#endif
+    bool got_bundle = BundleFactory::next_bundle(bundle, cache_bundle);
+    if (got_bundle)
+    {
+        RefSequenceTable& rt = ref_table();
+        
+        char bundle_label_buf[2048];
+        sprintf(bundle_label_buf, "%s:%d-%d", rt.get_name(bundle.ref_id()),	bundle.left(), bundle.right());
+        
+        boost::shared_ptr<const AlleleAbundanceGroup> ab = _hit_fac->next_locus(bundle.id(), cache_bundle);
+        if (ab)
+        {
+            double compatible_mass = _hit_fac->get_compat_mass(bundle.id());
+            double total_mass  = _hit_fac->get_total_mass(bundle.id());
+            
+            /*
+            double compatible_mass = _hit_fac->get_compat_mass(bundle_label_buf);
+            double total_mass  = _hit_fac->get_total_mass(bundle_label_buf);
+            */
+            
+            bundle.finalize();
+            bundle.add_raw_mass(total_mass);
+            bundle.compatible_mass(compatible_mass);
+            
+            //fprintf (stderr, "Reconstituting bundle %s (%d) with mass %lf\n", bundle_label_buf, bundle.id(), compatible_mass);
+            if (bundle.ref_scaffolds().size() != ab->abundances().size())
+            {
+                fprintf (stderr, "Error in file %s: reconstituted expression bundle %s (%lu transcripts)  does not match GTF (%lu transcripts):\n", read_group_properties()->file_path().c_str(),  bundle_label_buf, ab->abundances().size(), bundle.ref_scaffolds().size());
+                fprintf(stderr, "Reconstituted:\n");
+                for (size_t i = 0; i < ab->abundances().size(); ++i)
+                {
+                    fprintf(stderr, "%s\n", ab->abundances()[i]->description().c_str());
+                }
+                fprintf(stderr, "GTF:\n");
+                for (size_t i = 0; i < bundle.ref_scaffolds().size(); ++i)
+                {
+                    fprintf(stderr, "%s\n", bundle.ref_scaffolds()[i]->annotated_trans_id().c_str());
+                }
+                exit(1);
+            }
+        }
+        else
+        {
+            fprintf (stderr, "Error: no abundance info for locus %s\n", bundle_label_buf);
+        }
+        
+    }
+    return got_bundle;
+}
+
+boost::shared_ptr<const AlleleAbundanceGroup> AllelePrecomputedExpressionBundleFactory::get_abundance_for_locus(int locus_id)
+{
+#if ENABLE_THREADS
+    boost::mutex::scoped_lock lock(_factory_lock);
+#endif
+    return _hit_fac->get_abundance_for_locus(locus_id);
+}
+
+void AllelePrecomputedExpressionBundleFactory::clear_abundance_for_locus(int locus_id)
+{
+#if ENABLE_THREADS
+    boost::mutex::scoped_lock lock(_factory_lock);
+#endif
+    _hit_fac->clear_abundance_for_locus(locus_id);
+}
+
 

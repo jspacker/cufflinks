@@ -1630,7 +1630,8 @@ void allele_sample_worker(bool non_empty,
             bundle->left(),
             bundle->right());
     string locus_tag = bundle_label_buf;
-    
+   
+ 
     if (!non_empty || (bias_run && bundle->ref_scaffolds().size() != 1)) // Only learn on single isoforms
     {
 #if !ENABLE_THREADS
@@ -1653,7 +1654,7 @@ void allele_sample_worker(bool non_empty,
     
     bool perform_cds_analysis = false;
     bool perform_tss_analysis = false;
-    
+/*    
     BOOST_FOREACH(boost::shared_ptr<Scaffold> s, bundle->ref_scaffolds())
     {
         if (s->annotated_tss_id() != "")
@@ -1665,13 +1666,14 @@ void allele_sample_worker(bool non_empty,
             perform_cds_analysis = final_est_run;
         }
     }
-    
+*/
+
     std::vector<boost::shared_ptr<BundleFactory> > factories = sample_factory.factories();
-    vector<boost::shared_ptr<PrecomputedExpressionBundleFactory> > hit_factories;
+    vector<boost::shared_ptr<AllelePrecomputedExpressionBundleFactory> > hit_factories;
     for (size_t i = 0; i < factories.size(); ++i)
     {
         boost::shared_ptr<BundleFactory> pFac = factories[i];
-        boost::shared_ptr<PrecomputedExpressionBundleFactory> pBundleFac = dynamic_pointer_cast<PrecomputedExpressionBundleFactory> (pFac);
+        boost::shared_ptr<AllelePrecomputedExpressionBundleFactory> pBundleFac = dynamic_pointer_cast<AllelePrecomputedExpressionBundleFactory> (pFac);
         if (pBundleFac)
         {
             // If we get here, this factory refers to a pre computed expression object.
@@ -1682,15 +1684,15 @@ void allele_sample_worker(bool non_empty,
     
     if (hit_factories.size() == factories.size())
     {
-        fprintf(stderr, "Error: precomputed input not supported in allele mode\n");
-        exit(1);
-        //merge_precomputed_expression_worker(boost::cref(locus_tag),
-        //                                    hit_factories,
-        //                                    boost::ref(*abundance),
-        //                                    bundle,
-        //                                    perform_cds_analysis,
-        //                                    perform_tss_analysis,
-        //                                    calculate_variance);
+        //fprintf(stderr, "Error: precomputed input not supported in allele mode\n");
+        //exit(1);
+        merge_precomputed_expression_worker(boost::cref(locus_tag),
+                                            hit_factories,
+                                            boost::ref(*abundance),
+                                            bundle,
+                                            perform_cds_analysis,
+                                            perform_tss_analysis,
+                                            calculate_variance);
     }
     else if (hit_factories.empty())
     {
@@ -1715,8 +1717,7 @@ void allele_sample_worker(bool non_empty,
         exit(1);
     }
     ///////////////////////////////////////////////
-    
-    
+
     BOOST_FOREACH(boost::shared_ptr<Scaffold> ref_scaff,  bundle->ref_scaffolds())
     {
         ref_scaff->clear_hits();
@@ -1724,7 +1725,7 @@ void allele_sample_worker(bool non_empty,
     
     launcher->abundance_avail(locus_tag, abundance, factory_id);
     vector<vector<boost::shared_ptr<SampleAlleleAbundances> > > to_be_tested = launcher->test_finished_loci();
-    
+
     for (size_t i = 0; i < to_be_tested.size(); ++i)
         launcher->perform_testing(to_be_tested[i]);
 
@@ -3648,6 +3649,28 @@ void TrackingDataWriter::perform_testing(vector<boost::shared_ptr<SampleAbundanc
         headers_written = true;
     }
     
+    write_output(abundances);
+    //test_differential(abundances.front()->locus_tag, abundances, _contrasts, *_tests, *_tracking);
+#if ENABLE_THREADS
+    test_storage_lock.unlock();
+    _launcher_lock.unlock();
+#endif
+
+}
+
+void AlleleTrackingDataWriter::perform_testing(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances)
+{
+#if ENABLE_THREADS
+    _launcher_lock.lock();
+    test_storage_lock.lock();
+#endif
+
+    if (headers_written == false)
+    {
+        write_header_output();
+        headers_written = true;
+    }
+
     write_output(abundances);
     //test_differential(abundances.front()->locus_tag, abundances, _contrasts, *_tests, *_tracking);
 #if ENABLE_THREADS

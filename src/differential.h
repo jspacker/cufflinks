@@ -325,7 +325,7 @@ private:
             fflush(fout);
         }
     }
-    
+
     void print_FPKM_tracking(const string& target_desc,
                              FILE* fout,
                              const FPKMTrackingTable& tracking)
@@ -597,7 +597,7 @@ private:
             }
             fflush(fout);
         }
-    }
+    } 
     
     void print_read_group_cuffdiff_info(FILE* fout,
                                         const vector<boost::shared_ptr<ReadGroupProperties> >& all_read_groups)
@@ -989,6 +989,8 @@ public:
     _track_only(track_only)
     {
     }
+
+    virtual ~AlleleTestLauncher() {}
     
     void operator()();
     
@@ -996,8 +998,8 @@ public:
     void abundance_avail(const string& locus_id, 
                          boost::shared_ptr<SampleAlleleAbundances> ab, 
                          size_t factory_id);
-    vector<vector<boost::shared_ptr<SampleAlleleAbundances> > > test_finished_loci();
-    void perform_testing(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances);
+    virtual vector<vector<boost::shared_ptr<SampleAlleleAbundances> > > test_finished_loci();
+    virtual void perform_testing(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances);
     void record_tracking_data(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances);
     bool all_samples_reported_in(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances);
     bool all_samples_reported_in(const string& locus_id);
@@ -1018,6 +1020,791 @@ private:
     ProgressBar* _p_bar;
     bool _track_only;
 };
+
+class AlleleTrackingDataWriter : public AlleleTestLauncher
+{
+    
+public:
+    AlleleTrackingDataWriter(int num_samples,
+                             Outfiles* outfiles,
+                             Tracking* tracking,
+                       const vector<boost::shared_ptr<ReadGroupProperties> >& all_read_groups,
+                       vector<string> sls,
+                       ProgressBar* p_bar,
+                       boost::shared_ptr<IdToLocusMap> id_to_locus_map)
+    : AlleleTestLauncher(num_samples, NULL, tracking, false, p_bar),
+    _tracking(tracking),
+    _outfiles(outfiles),
+    _all_read_groups(all_read_groups),
+    sample_labels(sls),
+    headers_written(false),
+    _id_to_locus_map(id_to_locus_map)
+    {
+        
+    }
+    
+    void perform_testing(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances);
+    
+private:
+    Tracking* _tracking;
+    Outfiles* _outfiles;
+    const vector<boost::shared_ptr<ReadGroupProperties> >& _all_read_groups;
+    bool headers_written; // this flag records whether we've written out the file headers yet.
+    boost::shared_ptr<IdToLocusMap> _id_to_locus_map;
+    vector<string> sample_labels;
+    
+    void print_FPKM_tracking_header(FILE* fout,
+                                    const FPKMTrackingTable& tracking)
+    {
+        fprintf(fout,"tracking_id\tclass_code\tnearest_ref_id\tgene_id\tgene_short_name\ttss_id\tlocus\tlength\tpaternal_coverage\tmaternal_coverage");
+        FPKMTrackingTable::const_iterator first_itr = tracking.begin();
+        if (first_itr != tracking.end())
+        {
+            const FPKMTracking& track = first_itr->second;
+            const vector<FPKMContext>& paternal_fpkms = track.paternal_fpkm_series;
+            const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;
+            assert(paternal_fpkms.size() == maternal_fpkms.size());
+            for (size_t i = 0; i < paternal_fpkms.size(); ++i)
+            {
+                fprintf(fout, "\t%s_paternal_FPKM\t%s_maternal_FPKM\t%s_paternal_conf_lo\t%s_maternal_conf_lo\t%s_paternal_conf_hi\t%s_maternal_conf_hi\t%s_paternal_status\t%s_maternal_status", sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str());
+            }
+        }
+        fprintf(fout, "\n");
+        fflush(fout);
+    }
+    
+    void print_count_tracking_header(FILE* fout,
+                                     const FPKMTrackingTable& tracking)
+    {
+        fprintf(fout,"tracking_id");
+        FPKMTrackingTable::const_iterator first_itr = tracking.begin();
+        if (first_itr != tracking.end())
+        {
+            const FPKMTracking& track = first_itr->second;
+            const vector<FPKMContext>& paternal_fpkms = track.paternal_fpkm_series;
+            const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;
+            assert(paternal_fpkms.size() == maternal_fpkms.size());
+            for (size_t i = 0; i < paternal_fpkms.size(); ++i)
+            {
+                fprintf(fout, "\t%s_paternal_count\t%s_maternal_count\t%s_paternal_count_variance\t%s_maternal_count_variance\t%s_paternal_count_uncertainty_var\t%s_maternal_count_uncertainty_var\t%s_paternal_count_dispersion_var\t%s_maternal_count_dispersion_var\t%s_paternal_status\t%s_maternal_status", sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str(), sample_labels[i].c_str());
+            }
+        }
+        fprintf(fout, "\n");
+        fflush(fout);
+    }
+    
+    void print_FPKM_simple_table_header(FILE* fout,
+                                        const FPKMTrackingTable& tracking)
+    {
+        fprintf(fout,"tracking_id");
+        FPKMTrackingTable::const_iterator first_itr = tracking.begin();
+        if (first_itr != tracking.end())
+        {
+            const FPKMTracking& track = first_itr->second;
+            const vector<FPKMContext>& paternal_fpkms = track.paternal_fpkm_series;
+            const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;
+            assert(paternal_fpkms.size() == maternal_fpkms.size());
+            for (size_t i = 0; i < paternal_fpkms.size(); ++i)
+            {
+                for (size_t j = 0; j != paternal_fpkms[i].tracking_info_per_rep.size();
+                     ++j)
+                {
+                    const  string& condition_name = paternal_fpkms[i].tracking_info_per_rep[j].rg_props->condition_name();
+                    int rep_num = paternal_fpkms[i].tracking_info_per_rep[j].rg_props->replicate_num();
+                    fprintf(fout, "\t%s_%d_paternal\t%s_%d_maternal", condition_name.c_str(), rep_num, condition_name.c_str(), rep_num);
+                }
+            }
+            fflush(fout);
+        }
+    }
+    
+    void print_count_simple_table_header(FILE* fout,
+                                         const FPKMTrackingTable& tracking)
+    {
+        fprintf(fout,"tracking_id");
+        FPKMTrackingTable::const_iterator first_itr = tracking.begin();
+        if (first_itr != tracking.end())
+        {
+            const FPKMTracking& track = first_itr->second;
+            const vector<FPKMContext>& paternal_fpkms = track.paternal_fpkm_series;
+            const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;
+            assert(paternal_fpkms.size() == maternal_fpkms.size());
+            for (size_t i = 0; i < paternal_fpkms.size(); ++i)
+            {
+                for (size_t j = 0; j != paternal_fpkms[i].tracking_info_per_rep.size();
+                     ++j)
+                {
+                    const  string& condition_name = paternal_fpkms[i].tracking_info_per_rep[j].rg_props->condition_name();
+                    int rep_num = paternal_fpkms[i].tracking_info_per_rep[j].rg_props->replicate_num();
+                    fprintf(fout, "\t%s_%d_paternal\t%s_%d_maternal", condition_name.c_str(), rep_num, condition_name.c_str(), rep_num);
+                }
+            }
+            fflush(fout);
+        }
+    }
+
+    void print_FPKM_tracking(const string& target_desc,
+                             FILE* fout,
+                             const FPKMTrackingTable& tracking)
+    {
+        FPKMTrackingTable::const_iterator itr = tracking.find(target_desc);
+        if (itr != tracking.end())
+        {
+            const string& description = itr->first;
+            const FPKMTracking& track = itr->second;
+            const vector<FPKMContext>& paternal_fpkms = track.paternal_fpkm_series;
+            const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;          
+
+            string all_gene_ids = cat_strings(track.gene_ids);
+            if (all_gene_ids == "")
+                all_gene_ids = "-";
+            
+            string all_gene_names = cat_strings(track.gene_names);
+            if (all_gene_names == "")
+                all_gene_names = "-";
+            
+            string all_tss_ids = cat_strings(track.tss_ids);
+            if (all_tss_ids == "")
+                all_tss_ids = "-";
+            
+            char length_buff[33] = "-";
+            if (track.length)
+                sprintf(length_buff, "%d", track.length);
+            
+            fprintf(fout, "%s\t%c\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
+                    description.c_str(),
+                    track.classcode ? track.classcode : '-',
+                    track.ref_match.c_str(),
+                    all_gene_ids.c_str(),
+                    all_gene_names.c_str(),
+                    all_tss_ids.c_str(),
+                    track.locus_tag.c_str(),
+                    length_buff,
+                    "-");
+       	
+            assert(paternal_fpkms.size() == maternal_fpkms.size());	
+            for (size_t i = 0; i < paternal_fpkms.size(); ++i)
+            {
+                double paternal_fpkm = paternal_fpkms[i].FPKM;
+                double maternal_fpkm = maternal_fpkms[i].FPKM;
+                double paternal_fpkm_conf_hi = paternal_fpkms[i].FPKM_conf_hi;
+                double maternal_fpkm_conf_hi = maternal_fpkms[i].FPKM_conf_hi;
+                double paternal_fpkm_conf_lo = paternal_fpkms[i].FPKM_conf_lo;
+                double maternal_fpkm_conf_lo = maternal_fpkms[i].FPKM_conf_lo;
+                const char* paternal_status_str = "OK";
+                const char* maternal_status_str = "OK";
+                
+                if (paternal_fpkms[i].status == NUMERIC_OK) {
+                    paternal_status_str = "OK";
+                } else if (paternal_fpkms[i].status == NUMERIC_FAIL) {
+                    paternal_status_str = "FAIL";
+                } else if (paternal_fpkms[i].status == NUMERIC_LOW_DATA) {
+                    paternal_status_str = "LOWDATA";
+                } else if (paternal_fpkms[i].status == NUMERIC_HI_DATA) {
+                    paternal_status_str = "HIDATA";
+                } else { assert(false); }
+               
+                if (maternal_fpkms[i].status == NUMERIC_OK) {
+                    maternal_status_str = "OK";
+                } else if (maternal_fpkms[i].status == NUMERIC_FAIL) {
+                    maternal_status_str = "FAIL";
+                } else if (maternal_fpkms[i].status == NUMERIC_LOW_DATA) {
+                    maternal_status_str = "LOWDATA";
+                } else if (maternal_fpkms[i].status == NUMERIC_HI_DATA) {
+                    maternal_status_str = "HIDATA";
+                } else { assert(false); }
+                
+ 
+                fprintf(fout, "\t%lg\t%lg\t%lg\t%lg\t%lg\t%lg\t%s\t%s", paternal_fpkm, maternal_fpkm, paternal_fpkm_conf_lo, maternal_fpkm_conf_lo, paternal_fpkm_conf_hi, maternal_fpkm_conf_hi, paternal_status_str, maternal_status_str);
+            }
+            
+            fprintf(fout, "\n");
+            fflush(fout);
+        }
+    }
+    
+    void print_count_tracking(const string& target_desc,
+                              FILE* fout,
+                              const FPKMTrackingTable& tracking)
+    {
+        FPKMTrackingTable::const_iterator itr = tracking.find(target_desc);
+        if (itr != tracking.end())
+        {
+            const string& description = itr->first;
+            const FPKMTracking& track = itr->second;
+            const vector<FPKMContext>& paternal_fpkms = track.paternal_fpkm_series;
+            const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;            
+           
+            fprintf(fout, "%s",
+                    description.c_str());
+
+            assert(paternal_fpkms.size() == maternal_fpkms.size());            
+            for (size_t i = 0; i < paternal_fpkms.size(); ++i)
+            {
+                const char* paternal_status_str = "OK";
+                const char* maternal_status_str = "OK";
+                
+                if (paternal_fpkms[i].status == NUMERIC_OK) {
+                    paternal_status_str = "OK";
+                } else if (paternal_fpkms[i].status == NUMERIC_FAIL) {
+                    paternal_status_str = "FAIL";
+                } else if (paternal_fpkms[i].status == NUMERIC_LOW_DATA) {
+                    paternal_status_str = "LOWDATA";
+                } else if (paternal_fpkms[i].status == NUMERIC_HI_DATA) {
+                    paternal_status_str = "HIDATA";
+                } else { assert(false); }
+               
+                if (maternal_fpkms[i].status == NUMERIC_OK) {
+                    maternal_status_str = "OK";
+                } else if (maternal_fpkms[i].status == NUMERIC_FAIL) {
+                    maternal_status_str = "FAIL";
+                } else if (maternal_fpkms[i].status == NUMERIC_LOW_DATA) {
+                    maternal_status_str = "LOWDATA";
+                } else if (maternal_fpkms[i].status == NUMERIC_HI_DATA) {
+                    maternal_status_str = "HIDATA";
+                } else { assert(false); }
+                
+                double paternal_external_counts = paternal_fpkms[i].count_mean;
+                double maternal_external_counts = maternal_fpkms[i].count_mean;
+                double paternal_external_count_var = paternal_fpkms[i].count_var;
+                double maternal_external_count_var = maternal_fpkms[i].count_var;
+                double paternal_uncertainty_var = paternal_fpkms[i].count_uncertainty_var;
+                double maternal_uncertainty_var = maternal_fpkms[i].count_uncertainty_var;
+                double paternal_dispersion_var = paternal_fpkms[i].count_dispersion_var;
+                double maternal_dispersion_var = maternal_fpkms[i].count_dispersion_var;
+
+                fprintf(fout, "\t%lg\t%lg\t%lg\t%lg\t%lg\t%lg\t%lg\t%lg\t%s\t%s", paternal_external_counts, maternal_external_counts, paternal_external_count_var, maternal_external_count_var, paternal_uncertainty_var, maternal_uncertainty_var, paternal_dispersion_var, maternal_dispersion_var, paternal_status_str, maternal_status_str);
+            }
+            
+            fprintf(fout, "\n");
+            fflush(fout);
+        }
+    }
+    
+    void print_FPKM_simple_table(const string& target_desc,
+                                 FILE* fout,
+                                 const FPKMTrackingTable& tracking)
+    {
+        FPKMTrackingTable::const_iterator itr = tracking.find(target_desc);
+        if (itr != tracking.end())
+        {
+            const string& description = itr->first;
+            fprintf(fout, "\n%s", description.c_str());
+
+            const FPKMTracking& track = itr->second;
+            const vector<FPKMContext>& paternal_fpkms = track.paternal_fpkm_series;
+            const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;
+
+            assert(paternal_fpkms.size() == maternal_fpkms.size());
+            for (size_t i = 0; i < paternal_fpkms.size(); ++i)
+            {
+                assert(paternal_fpkms[i].tracking_info_per_rep.size() == maternal_fpkms[i].tracking_info_per_rep.size());
+                for (size_t j = 0; j != paternal_fpkms[i].tracking_info_per_rep.size();
+                     ++j)
+                {
+                    double paternal_FPKM = paternal_fpkms[i].tracking_info_per_rep[j].fpkm;
+                    double maternal_FPKM = maternal_fpkms[i].tracking_info_per_rep[j].fpkm;
+                    fprintf(fout, "\t%lg\t%lg", paternal_FPKM, maternal_FPKM);
+                }
+            }
+            fflush(fout);
+        }
+    }
+    
+    void print_count_simple_table(const string& target_desc,
+                                  FILE* fout,
+                                  const FPKMTrackingTable& tracking)
+    {
+        FPKMTrackingTable::const_iterator itr = tracking.find(target_desc);
+        if (itr != tracking.end())
+        {
+            const string& description = itr->first;
+            fprintf(fout, "\n%s", description.c_str());
+
+            const FPKMTracking& track = itr->second;
+            const vector<FPKMContext>& paternal_fpkms = track.paternal_fpkm_series;
+            const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;
+            
+            assert(paternal_fpkms.size() == maternal_fpkms.size());
+            for (size_t i = 0; i < paternal_fpkms.size(); ++i)
+            {
+                assert(paternal_fpkms[i].tracking_info_per_rep.size() == maternal_fpkms[i].tracking_info_per_rep.size());
+                for (size_t j = 0; j != maternal_fpkms[i].tracking_info_per_rep.size();
+                     ++j)
+                {
+                    double paternal_count = paternal_fpkms[i].tracking_info_per_rep[j].count;
+                    double maternal_count = maternal_fpkms[i].tracking_info_per_rep[j].count;
+                    fprintf(fout, "\t%lg\t%lg", paternal_count, maternal_count);
+                }
+            }
+            fflush(fout);
+        }
+    }
+    
+    void remove_abundance_from_tracking_table(const string& target_desc,
+                                              FPKMTrackingTable& tracking)
+    {
+        FPKMTrackingTable::iterator itr = tracking.find(target_desc);
+        if (itr != tracking.end())
+        {
+            tracking.erase(itr);
+        }
+    }
+    
+    void print_read_group_tracking_header(FILE* fout,
+                                          const FPKMTrackingTable& tracking)
+    {
+        fprintf(fout,"tracking_id\tcondition\treplicate\tpaternal_raw_frags\tmaternal_raw_frags\tpaternal_internal_scaled_frags\tmaternal_internal_scaled_frags\tpaternal_external_scaled_frags\tmaternal_external_scaled_frags\tpaternal_FPKM\tmaternal_FPKM\tpaternal_effective_length\tmaternal_effective_length\tpaternal_status\tmaternal_status");
+        fprintf(fout, "\n");
+    }
+    
+    void print_read_group_tracking(const string& target_desc,
+                                   FILE* fout,
+                                   const FPKMTrackingTable& tracking)
+    {
+        FPKMTrackingTable::const_iterator itr = tracking.find(target_desc);
+        if (itr != tracking.end())
+        {
+            const string& description = itr->first;
+            const FPKMTracking& track = itr->second;
+            const vector<FPKMContext>& paternal_fpkms = track.paternal_fpkm_series;
+            const vector<FPKMContext>& maternal_fpkms = track.maternal_fpkm_series;            
+
+            assert(paternal_fpkms.size() == maternal_fpkms.size());
+            for (size_t i = 0; i < paternal_fpkms.size(); ++i)
+            {
+                assert(paternal_fpkms[i].tracking_info_per_rep.size() == maternal_fpkms[i].tracking_info_per_rep.size());
+                for (size_t j = 0; j != paternal_fpkms[i].tracking_info_per_rep.size();
+                     ++j)
+                {
+                    double paternal_FPKM = paternal_fpkms[i].tracking_info_per_rep[j].fpkm;
+                    double maternal_FPKM = maternal_fpkms[i].tracking_info_per_rep[j].fpkm;
+                    double paternal_internal_count = paternal_fpkms[i].tracking_info_per_rep[j].count;
+                    double maternal_internal_count = maternal_fpkms[i].tracking_info_per_rep[j].count;
+                    double paternal_external_count = paternal_internal_count / paternal_fpkms[i].tracking_info_per_rep[j].rg_props->external_scale_factor();
+                    double maternal_external_count = maternal_internal_count / maternal_fpkms[i].tracking_info_per_rep[j].rg_props->external_scale_factor();
+                    double paternal_raw_count = paternal_internal_count * paternal_fpkms[i].tracking_info_per_rep[j].rg_props->internal_scale_factor();
+                    double maternal_raw_count = maternal_internal_count * maternal_fpkms[i].tracking_info_per_rep[j].rg_props->internal_scale_factor();
+                    const  string& condition_name = paternal_fpkms[i].tracking_info_per_rep[j].rg_props->condition_name(); 
+                    
+                    int rep_num = paternal_fpkms[i].tracking_info_per_rep[j].rg_props->replicate_num();
+
+                    AbundanceStatus paternal_status = paternal_fpkms[i].tracking_info_per_rep[j].status;
+                    AbundanceStatus maternal_status = maternal_fpkms[i].tracking_info_per_rep[j].status;
+                    const char* paternal_status_str = "OK";
+                    const char* maternal_status_str = "OK";
+                
+                    if (paternal_fpkms[i].status == NUMERIC_OK) {
+                        paternal_status_str = "OK";
+                    } else if (paternal_fpkms[i].status == NUMERIC_FAIL) {
+                        paternal_status_str = "FAIL";
+                    } else if (paternal_fpkms[i].status == NUMERIC_LOW_DATA) {
+                        paternal_status_str = "LOWDATA";
+                    } else if (paternal_fpkms[i].status == NUMERIC_HI_DATA) {
+                        paternal_status_str = "HIDATA";
+                    } else { assert(false); }
+               
+                    if (maternal_fpkms[i].status == NUMERIC_OK) {
+                        maternal_status_str = "OK";
+                    } else if (maternal_fpkms[i].status == NUMERIC_FAIL) {
+                        maternal_status_str = "FAIL";
+                    } else if (maternal_fpkms[i].status == NUMERIC_LOW_DATA) {
+                        maternal_status_str = "LOWDATA";
+                    } else if (maternal_fpkms[i].status == NUMERIC_HI_DATA) {
+                        maternal_status_str = "HIDATA";
+                    } else { assert(false); } 
+                   
+                    fprintf(fout, "%s\t%s\t%d\t%lg\t%lg\t%lg\t%lg\t%lg\t%lg\t%lg\t%lg\t%s\t%s\t%s\t%s\n",
+                            description.c_str(),
+                            condition_name.c_str(),
+                            rep_num,
+                            paternal_raw_count,
+                            maternal_raw_count,
+                            paternal_internal_count,
+                            maternal_internal_count,
+                            paternal_external_count,
+                            maternal_external_count,
+                            paternal_FPKM,
+                            maternal_FPKM,
+                            "-",
+                            "-",
+                            paternal_status_str,
+                            maternal_status_str);
+                }
+            }
+            fflush(fout);
+        }
+    }
+    
+    void print_read_group_cuffdiff_info(FILE* fout,
+                                        const vector<boost::shared_ptr<ReadGroupProperties> >& all_read_groups)
+    {
+        fprintf(fout, "file\tcondition\treplicate_num\ttotal_mass\tnorm_mass\tinternal_scale\texternal_scale\n");
+        for (size_t i = 0; i < all_read_groups.size(); ++i)
+        {
+            boost::shared_ptr<ReadGroupProperties const> rg_props = all_read_groups[i];
+            fprintf(fout, "%s\t%s\t%d\t%Lg\t%Lg\t%lg\t%lg\n",
+                    rg_props->file_path().c_str(),
+                    rg_props->condition_name().c_str(),
+                    rg_props->replicate_num(),
+                    rg_props->total_map_mass(),
+                    rg_props->normalized_map_mass(),
+                    rg_props->internal_scale_factor(),
+                    rg_props->external_scale_factor());
+            
+        }
+    }
+    
+    void print_read_group_simple_table_info(FILE* fout,
+                                            const vector<boost::shared_ptr<ReadGroupProperties> >& all_read_groups)
+    {
+        //fprintf(fout, "file\tcondition\treplicate_num\ttotal_mass\tnorm_mass\tinternal_scale\texternal_scale\n");
+        fprintf(fout, "sample_id\tfile\ttotal_mass\tinternal_scale\texternal_scale\n");
+        for (size_t i = 0; i < all_read_groups.size(); ++i)
+        {
+            boost::shared_ptr<ReadGroupProperties const> rg_props = all_read_groups[i];
+            fprintf(fout, "%s_%d\t%s\t%Lg\t%lg\t%lg\n",
+                    rg_props->condition_name().c_str(),
+                    rg_props->replicate_num(),
+                    rg_props->file_path().c_str(),
+                    rg_props->total_map_mass(),
+                    rg_props->internal_scale_factor(),
+                    rg_props->external_scale_factor());
+            
+        }
+    }
+
+    void print_feature_attr_simple_table_header(FILE* fout,
+                                         const FPKMTrackingTable& tracking)
+    {
+        fprintf(fout,"tracking_id\tclass_code\tnearest_ref_id\tgene_id\tgene_short_name\ttss_id\tlocus\tlength");
+        fprintf(fout, "\n");
+    }
+
+    
+    void print_feature_attr_simple_table(const string& target_desc,
+                                         FILE* fout,
+                                         const FPKMTrackingTable& tracking)
+    {
+        FPKMTrackingTable::const_iterator itr = tracking.find(target_desc);
+        if (itr != tracking.end())
+        {
+            const string& description = itr->first;
+            const string& locus_tag = itr->second.locus_tag;
+            const string& ref_match = itr->second.ref_match;
+            int length = itr->second.length;
+            char length_buff[33] = "-";
+            if (length)
+                sprintf(length_buff, "%d", length);
+            const set<string>& gene_names = itr->second.gene_names;
+            const set<string>& gene_ids = itr->second.gene_ids;
+            const set<string>& tss_ids = itr->second.tss_ids;
+            char class_code = itr->second.classcode ? itr->second.classcode : '-';
+            string all_gene_names = cat_strings(gene_names);
+            if (all_gene_names == "")
+                all_gene_names = "-";
+            string all_gene_ids = cat_strings(gene_ids);
+            if (all_gene_ids == "")
+                all_gene_ids = "-";
+            string all_tss_ids = cat_strings(tss_ids);
+            if (all_tss_ids == "")
+                all_tss_ids = "-";
+            fprintf(fout, "%s\t%c\t%s\t%s\t%s\t%s\t%s\t%s\n",
+                    description.c_str(),
+                    class_code,
+                    ref_match.c_str(),
+                    all_gene_ids.c_str(),
+                    all_gene_names.c_str(),
+                    all_tss_ids.c_str(),
+                    locus_tag.c_str(),
+                    length_buff);
+        }
+    }
+    
+    void print_run_info(FILE* fout)
+    {
+        fprintf(fout, "param\tvalue\n");
+        fprintf(fout, "cmd_line\t%s\n", cmd_str.c_str());
+        fprintf(fout, "version\t%s\n", PACKAGE_VERSION);
+        fprintf(fout, "SVN_revision\t%s\n",SVN_REVISION);
+        fprintf(fout, "boost_version\t%d\n", BOOST_VERSION);
+    }
+    
+    void write_header_output_cuffdiff_format()
+    {
+        // FPKM tracking
+        
+        FILE* fiso_fpkm_tracking =  _outfiles->isoform_fpkm_tracking_out;
+        //fprintf(stderr, "Writing isoform-level FPKM tracking\n");
+        print_FPKM_tracking_header(fiso_fpkm_tracking,_tracking->isoform_fpkm_tracking);
+        
+        FILE* ftss_fpkm_tracking =  _outfiles->tss_group_fpkm_tracking_out;
+        //fprintf(stderr, "Writing TSS group-level FPKM tracking\n");
+        print_FPKM_tracking_header(ftss_fpkm_tracking,_tracking->tss_group_fpkm_tracking);
+        
+        FILE* fgene_fpkm_tracking =  _outfiles->gene_fpkm_tracking_out;
+        //fprintf(stderr, "Writing gene-level FPKM tracking\n");
+        print_FPKM_tracking_header(fgene_fpkm_tracking,_tracking->gene_fpkm_tracking);
+        
+        FILE* fcds_fpkm_tracking =  _outfiles->cds_fpkm_tracking_out;
+        //fprintf(stderr, "Writing CDS-level FPKM tracking\n");
+        print_FPKM_tracking_header(fcds_fpkm_tracking,_tracking->cds_fpkm_tracking);
+        
+        // Count tracking
+        
+        FILE* fiso_count_tracking =  _outfiles->isoform_count_tracking_out;
+        //fprintf(stderr, "Writing isoform-level count tracking\n");
+        print_count_tracking_header(fiso_count_tracking,_tracking->isoform_fpkm_tracking);
+        
+        FILE* ftss_count_tracking =  _outfiles->tss_group_count_tracking_out;
+        //fprintf(stderr, "Writing TSS group-level count tracking\n");
+        print_count_tracking_header(ftss_count_tracking,_tracking->tss_group_fpkm_tracking);
+        
+        FILE* fgene_count_tracking =  _outfiles->gene_count_tracking_out;
+        //fprintf(stderr, "Writing gene-level count tracking\n");
+        print_count_tracking_header(fgene_count_tracking,_tracking->gene_fpkm_tracking);
+        
+        FILE* fcds_count_tracking =  _outfiles->cds_count_tracking_out;
+        //fprintf(stderr, "Writing CDS-level count tracking\n");
+        print_count_tracking_header(fcds_count_tracking,_tracking->cds_fpkm_tracking);
+        
+        // Read group tracking
+        
+        FILE* fiso_rep_tracking =  _outfiles->isoform_rep_tracking_out;
+        //fprintf(stderr, "Writing isoform-level read group tracking\n");
+        print_read_group_tracking_header(fiso_rep_tracking,_tracking->isoform_fpkm_tracking);
+        
+        FILE* ftss_rep_tracking =  _outfiles->tss_group_rep_tracking_out;
+        //fprintf(stderr, "Writing TSS group-level read group tracking\n");
+        print_read_group_tracking_header(ftss_rep_tracking,_tracking->tss_group_fpkm_tracking);
+        
+        FILE* fgene_rep_tracking =  _outfiles->gene_rep_tracking_out;
+        //fprintf(stderr, "Writing gene-level read group tracking\n");
+        print_read_group_tracking_header(fgene_rep_tracking,_tracking->gene_fpkm_tracking);
+        
+        FILE* fcds_rep_tracking =  _outfiles->cds_rep_tracking_out;
+        //fprintf(stderr, "Writing CDS-level read group tracking\n");
+        print_read_group_tracking_header(fcds_rep_tracking,_tracking->cds_fpkm_tracking);
+        
+        FILE* fread_group_info =  _outfiles->read_group_info_out;
+        //fprintf(stderr, "Writing read group info\n");
+        print_read_group_cuffdiff_info(fread_group_info,_all_read_groups);
+        
+        FILE* frun_info =  _outfiles->run_info_out;
+        //fprintf(stderr, "Writing run info\n");
+        print_run_info(frun_info);
+        
+    }
+    
+    void write_header_output_simple_table_format()
+    {
+        // FPKM tracking
+        
+        FILE* fiso_fpkm_tracking =  _outfiles->isoform_fpkm_tracking_out;
+        //fprintf(stderr, "Writing isoform-level FPKM tracking\n");
+        print_FPKM_simple_table_header(fiso_fpkm_tracking,_tracking->isoform_fpkm_tracking);
+        
+        FILE* ftss_fpkm_tracking =  _outfiles->tss_group_fpkm_tracking_out;
+        //fprintf(stderr, "Writing TSS group-level FPKM tracking\n");
+        print_FPKM_simple_table_header(ftss_fpkm_tracking,_tracking->tss_group_fpkm_tracking);
+        
+        FILE* fgene_fpkm_tracking =  _outfiles->gene_fpkm_tracking_out;
+        //fprintf(stderr, "Writing gene-level FPKM tracking\n");
+        print_FPKM_simple_table_header(fgene_fpkm_tracking,_tracking->gene_fpkm_tracking);
+        
+        FILE* fcds_fpkm_tracking =  _outfiles->cds_fpkm_tracking_out;
+        //fprintf(stderr, "Writing CDS-level FPKM tracking\n");
+        print_FPKM_simple_table_header(fcds_fpkm_tracking,_tracking->cds_fpkm_tracking);
+        
+        // Count tracking
+        
+        FILE* fiso_count_tracking =  _outfiles->isoform_count_tracking_out;
+        //fprintf(stderr, "Writing isoform-level count tracking\n");
+        print_count_simple_table_header(fiso_count_tracking,_tracking->isoform_fpkm_tracking);
+        
+        FILE* ftss_count_tracking =  _outfiles->tss_group_count_tracking_out;
+        //fprintf(stderr, "Writing TSS group-level count tracking\n");
+        print_count_simple_table_header(ftss_count_tracking,_tracking->tss_group_fpkm_tracking);
+        
+        FILE* fgene_count_tracking =  _outfiles->gene_count_tracking_out;
+        //fprintf(stderr, "Writing gene-level count tracking\n");
+        print_count_simple_table_header(fgene_count_tracking,_tracking->gene_fpkm_tracking);
+        
+        FILE* fcds_count_tracking =  _outfiles->cds_count_tracking_out;
+        //fprintf(stderr, "Writing CDS-level count tracking\n");
+        print_count_simple_table_header(fcds_count_tracking,_tracking->cds_fpkm_tracking);
+        
+        // We can also take care of all this metadata about samples and genes
+        FILE* fiso_attr =  _outfiles->isoform_attr_out;
+        //fprintf(stderr, "Writing isoform-level attributes\n");
+        print_feature_attr_simple_table_header(fiso_attr,_tracking->isoform_fpkm_tracking);
+        
+        FILE* ftss_attr =  _outfiles->tss_group_attr_out;
+        //fprintf(stderr, "Writing TSS group-level attributes\n");
+        print_feature_attr_simple_table_header(ftss_attr,_tracking->tss_group_fpkm_tracking);
+        
+        FILE* fgene_attr =  _outfiles->gene_attr_out;
+        //fprintf(stderr, "Writing gene-level attributes\n");
+        print_feature_attr_simple_table_header(fgene_attr,_tracking->gene_fpkm_tracking);
+        
+        FILE* fcds_attr =  _outfiles->cds_attr_out;
+        //fprintf(stderr, "Writing CDS-level attributes\n");
+        print_feature_attr_simple_table_header(fcds_attr,_tracking->cds_fpkm_tracking);
+        
+        FILE* fread_group_info =  _outfiles->read_group_info_out;
+        //fprintf(stderr, "Writing read group info\n");
+        print_read_group_simple_table_info(fread_group_info,_all_read_groups);
+        
+        FILE* frun_info =  _outfiles->run_info_out;
+        //fprintf(stderr, "Writing run info\n");
+        print_run_info(frun_info);
+        
+    }
+    
+    void write_output(const vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances)
+    {
+        if (output_format == CUFFDIFF_OUTPUT_FMT)
+        {
+            write_cuffdiff_output(abundances);
+        }
+        else if (output_format == SIMPLE_TABLE_OUTPUT_FMT)
+        {
+            write_simple_table_output(abundances);
+        }
+        else{
+            fprintf(stderr, "Error: unrecognized output format!\n");
+            exit(1);
+        }
+    }
+    
+    void write_header_output()
+    {
+        if (output_format == CUFFDIFF_OUTPUT_FMT)
+        {
+            write_header_output_cuffdiff_format();
+        }
+        else if (output_format == SIMPLE_TABLE_OUTPUT_FMT)
+        {
+            write_header_output_simple_table_format();
+        }
+        else{
+            fprintf(stderr, "Error: unrecognized output format!\n");
+            exit(1);
+        }
+    }
+    
+    void write_cuffdiff_output(const vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances)
+    {
+        const AlleleAbundanceGroup& ab_group = abundances.front()->transcripts;
+        //fprintf(stderr, "[%d] count = %lg\n",i,  ab_group.num_fragments());
+        BOOST_FOREACH (boost::shared_ptr<Abundance> ab, ab_group.abundances())
+        {
+            int num_remaining = _id_to_locus_map->unregister_locus_from_id(ab->description(), ab->locus_tag());
+            if (num_remaining == 0)
+            {
+                print_FPKM_tracking(ab->description(), _outfiles->isoform_fpkm_tracking_out, _tracking->isoform_fpkm_tracking);
+                print_count_tracking(ab->description(), _outfiles->isoform_count_tracking_out, _tracking->isoform_fpkm_tracking);
+                print_read_group_tracking(ab->description(), _outfiles->isoform_rep_tracking_out, _tracking->isoform_fpkm_tracking);
+                remove_abundance_from_tracking_table(ab->description(), _tracking->isoform_fpkm_tracking);
+            }
+        }
+        
+        BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances.front()->cds)
+        {
+            int num_remaining = _id_to_locus_map->unregister_locus_from_id(ab.description(), ab.locus_tag());
+            if (num_remaining == 0)
+            {
+                print_FPKM_tracking(ab.description(), _outfiles->cds_fpkm_tracking_out, _tracking->cds_fpkm_tracking);
+                print_count_tracking(ab.description(), _outfiles->cds_count_tracking_out, _tracking->cds_fpkm_tracking);
+                print_read_group_tracking(ab.description(), _outfiles->cds_rep_tracking_out, _tracking->cds_fpkm_tracking);
+                remove_abundance_from_tracking_table(ab.description(), _tracking->cds_fpkm_tracking);
+                
+            }
+        }
+        
+        BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances.front()->primary_transcripts)
+        {
+            int num_remaining = _id_to_locus_map->unregister_locus_from_id(ab.description(), ab.locus_tag());
+            if (num_remaining == 0)
+            {
+                print_FPKM_tracking(ab.description(), _outfiles->tss_group_fpkm_tracking_out, _tracking->tss_group_fpkm_tracking);
+                print_count_tracking(ab.description(), _outfiles->tss_group_count_tracking_out, _tracking->tss_group_fpkm_tracking);
+                print_read_group_tracking(ab.description(), _outfiles->tss_group_rep_tracking_out, _tracking->tss_group_fpkm_tracking);
+                remove_abundance_from_tracking_table(ab.description(), _tracking->tss_group_fpkm_tracking);
+            }
+        }
+        
+        BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances.front()->genes)
+        {
+            int num_remaining = _id_to_locus_map->unregister_locus_from_id(ab.description(), ab.locus_tag());
+            if (num_remaining == 0)
+            {
+                print_FPKM_tracking(ab.description(), _outfiles->gene_fpkm_tracking_out, _tracking->gene_fpkm_tracking);
+                print_count_tracking(ab.description(), _outfiles->gene_count_tracking_out, _tracking->gene_fpkm_tracking);
+                print_read_group_tracking(ab.description(), _outfiles->gene_rep_tracking_out, _tracking->gene_fpkm_tracking);
+                remove_abundance_from_tracking_table(ab.description(), _tracking->gene_fpkm_tracking);
+            }
+        }
+    }
+    
+    
+    void write_simple_table_output(const vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances)
+    {
+        const AlleleAbundanceGroup& ab_group = abundances.front()->transcripts;
+        //fprintf(stderr, "[%d] count = %lg\n",i,  ab_group.num_fragments());
+        BOOST_FOREACH (boost::shared_ptr<Abundance> ab, ab_group.abundances())
+        {
+            int num_remaining = _id_to_locus_map->unregister_locus_from_id(ab->description(), ab->locus_tag());
+            if (num_remaining == 0)
+            {
+                print_FPKM_simple_table(ab->description(), _outfiles->isoform_fpkm_tracking_out, _tracking->isoform_fpkm_tracking);
+                print_count_simple_table(ab->description(), _outfiles->isoform_count_tracking_out, _tracking->isoform_fpkm_tracking);
+                print_feature_attr_simple_table(ab->description(), _outfiles->isoform_attr_out, _tracking->isoform_fpkm_tracking);
+                remove_abundance_from_tracking_table(ab->description(), _tracking->isoform_fpkm_tracking);
+            }
+
+        }
+        
+        BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances.front()->cds)
+        {
+            int num_remaining = _id_to_locus_map->unregister_locus_from_id(ab.description(), ab.locus_tag());
+            if (num_remaining == 0)
+            {
+                print_FPKM_simple_table(ab.description(), _outfiles->cds_fpkm_tracking_out, _tracking->cds_fpkm_tracking);
+                print_count_simple_table(ab.description(), _outfiles->cds_count_tracking_out, _tracking->cds_fpkm_tracking);
+                print_feature_attr_simple_table(ab.description(), _outfiles->cds_attr_out, _tracking->cds_fpkm_tracking);
+                remove_abundance_from_tracking_table(ab.description(), _tracking->cds_fpkm_tracking);
+            }
+
+        }
+        
+        BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances.front()->primary_transcripts)
+        {
+            int num_remaining = _id_to_locus_map->unregister_locus_from_id(ab.description(), ab.locus_tag());
+            if (num_remaining == 0)
+            {
+                print_FPKM_simple_table(ab.description(), _outfiles->tss_group_fpkm_tracking_out, _tracking->tss_group_fpkm_tracking);
+                print_count_simple_table(ab.description(), _outfiles->tss_group_count_tracking_out, _tracking->tss_group_fpkm_tracking);
+                print_feature_attr_simple_table(ab.description(), _outfiles->tss_group_attr_out, _tracking->tss_group_fpkm_tracking);
+                remove_abundance_from_tracking_table(ab.description(), _tracking->tss_group_fpkm_tracking);
+            }
+        }
+        
+        BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances.front()->genes)
+        {
+            int num_remaining = _id_to_locus_map->unregister_locus_from_id(ab.description(), ab.locus_tag());
+            if (num_remaining == 0)
+            {
+                print_FPKM_simple_table(ab.description(), _outfiles->gene_fpkm_tracking_out, _tracking->gene_fpkm_tracking);
+                print_count_simple_table(ab.description(), _outfiles->gene_count_tracking_out, _tracking->gene_fpkm_tracking);
+                print_feature_attr_simple_table(ab.description(), _outfiles->gene_attr_out, _tracking->gene_fpkm_tracking);
+                remove_abundance_from_tracking_table(ab.description(), _tracking->gene_fpkm_tracking);
+            }
+        }
+    }
+};
+
+
 
 extern double min_read_count;
 

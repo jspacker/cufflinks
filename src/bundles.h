@@ -423,6 +423,32 @@ private:
 #endif
 };
 
+class AllelePrecomputedExpressionBundleFactory : public BundleFactory
+{
+public:
+    AllelePrecomputedExpressionBundleFactory(boost::shared_ptr<AllelePrecomputedExpressionHitFactory> fac)
+	: BundleFactory(fac, REF_DRIVEN), _hit_fac(fac)
+	{
+		
+	}
+    
+    bool next_bundle(HitBundle& bundle_out, bool cache_bundle);
+    
+    boost::shared_ptr<const AlleleAbundanceGroup> get_abundance_for_locus(int locus_id);
+    void clear_abundance_for_locus(int locus_id);
+    
+    void reset() { BundleFactory::reset(); }
+    
+private:
+    
+    boost::shared_ptr<AllelePrecomputedExpressionHitFactory> _hit_fac;
+#if ENABLE_THREADS
+    boost::mutex _factory_lock;
+#endif
+};
+
+
+
 void identify_bad_splices(const HitBundle& bundle, 
 						  BadIntronTable& bad_splice_ops);
 

@@ -975,11 +975,11 @@ public:
     bool all_samples_reported_in(vector<boost::shared_ptr<SampleAlleleAbundances> >& abundances);
     bool all_samples_reported_in(int locus_id);
     
-    void clear_tracking_data() { _tracking->clear(); }
+    void clear_tracking_data() { if (_tracking != NULL) _tracking->clear(); }
     
     typedef list<pair<int, vector<boost::shared_ptr<SampleAlleleAbundances> > > > recorder_sample_table;
     
-    const light_allele_ab_group_tracking_table& get_sample_table() const { return _allele_ab_group_tracking_table; }
+    light_allele_ab_group_tracking_table& get_sample_table() { return _allele_ab_group_tracking_table; }
     
 private:
     
@@ -1086,21 +1086,23 @@ void AlleleAbundanceRecorder::record_tracking_data(int locus_id, vector<boost::s
     // all objects in all samples
 	for (size_t i = 0; i < abundances.size(); ++i)
 	{
-		const AlleleAbundanceGroup& ab_group = abundances[i]->transcripts;
+            if (_tracking != NULL)
+            {
+                const AlleleAbundanceGroup& ab_group = abundances[i]->transcripts;
      
-        	BOOST_FOREACH (boost::shared_ptr<Abundance> ab, ab_group.abundances())
-		{
-			add_to_tracking_table_allele(i, *ab, _tracking->isoform_fpkm_tracking);
-		}	
+                BOOST_FOREACH (boost::shared_ptr<Abundance> ab, ab_group.abundances())
+                {
+                    add_to_tracking_table_allele(i, *ab, _tracking->isoform_fpkm_tracking);
+                }	
 	
-		BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances[i]->genes)
-		{
-			add_to_tracking_table_allele(i, ab, _tracking->gene_fpkm_tracking);
-		}
+                BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances[i]->genes)
+                {
+                    add_to_tracking_table_allele(i, ab, _tracking->gene_fpkm_tracking);
+                }
+            }
 
- 
-        abundances[i]->transcripts.clear_non_serialized_data();
-        lightweight_allele_ab_groups.push_back(abundances[i]->transcripts);
+            abundances[i]->transcripts.clear_non_serialized_data();
+            lightweight_allele_ab_groups.push_back(abundances[i]->transcripts);
 	}
     
     if (_allele_ab_group_tracking_table.find(locus_id) != _allele_ab_group_tracking_table.end())
@@ -1121,16 +1123,10 @@ void AlleleAbundanceRecorder::record_finished_loci()
     {
         if (all_samples_reported_in(itr->second))
         {
-            // In some abundance runs, we don't actually want to perform testing
-            // (eg initial quantification before bias correction).
-            // _tests and _tracking will be NULL in these cases.
-            if (_tracking != NULL)
+            if (_p_bar)
             {
-                if (_p_bar)
-                {
-                    verbose_msg("Estimating expression in locus [%s]\n", itr->second.front()->locus_tag.c_str());
-                    _p_bar->update(itr->second.front()->locus_tag.c_str(), 1);
-                }
+                verbose_msg("Estimating expression in locus [%s]\n", itr->second.front()->locus_tag.c_str());
+                _p_bar->update(itr->second.front()->locus_tag.c_str(), 1);
             }
             record_tracking_data(itr->first, itr->second);
             
@@ -1235,12 +1231,12 @@ void sample_worker(const RefSequenceTable& rt,
     recorder->record_finished_loci();
 }
 
-void sample_worker(const RefSequenceTable& rt,
-                   ReplicatedBundleFactory& sample_factory,
-                   boost::shared_ptr<SampleAlleleAbundances> abundance,
-                   size_t factory_id,
-                   boost::shared_ptr<AlleleAbundanceRecorder> recorder,
-                   bool calculate_variance)
+void allele_sample_worker(const RefSequenceTable& rt,
+                          ReplicatedBundleFactory& sample_factory,
+                          boost::shared_ptr<SampleAlleleAbundances> abundance,
+                          size_t factory_id,
+                          boost::shared_ptr<AlleleAbundanceRecorder> recorder,
+                          bool calculate_variance)
 {
 #if ENABLE_THREADS
 	boost::this_thread::at_thread_exit(decr_pool_count);
@@ -1391,7 +1387,7 @@ bool quantitate_next_locus(const RefSequenceTable& rt,
         locus_curr_threads++;
         locus_thread_pool_lock.unlock();
         
-        thread quantitate(sample_worker,
+        thread quantitate(allele_sample_worker,
                           boost::ref(rt),
                           boost::ref(*(bundle_factories[i])),
                           s_ab,
@@ -1399,12 +1395,12 @@ bool quantitate_next_locus(const RefSequenceTable& rt,
                           recorder,
                           false);
 #else
-        sample_worker(boost::ref(rt),
-                      boost::ref(*(bundle_factories[i])),
-                      s_ab,
-                      i,
-                      recorder,
-                      false);
+        allele_sample_worker(boost::ref(rt),
+                             boost::ref(*(bundle_factories[i])),
+                             s_ab,
+                             i,
+                             recorder,
+                             false);
 #endif
     }
     return true;
@@ -1710,7 +1706,7 @@ void driver(const std::string& ref_gtf_filename,
     Tracking tracking;
    
     if (allele_specific_abundance_estimation) {
-        allele_abundance_recorder = boost::shared_ptr<AlleleAbundanceRecorder>(new AlleleAbundanceRecorder(bundle_factories.size(), &tracking, &p_bar));
+        allele_abundance_recorder = boost::shared_ptr<AlleleAbundanceRecorder>(new AlleleAbundanceRecorder(bundle_factories.size(), NULL, &p_bar));
     } else { 
         abundance_recorder = boost::shared_ptr<AbundanceRecorder>(new AbundanceRecorder(bundle_factories.size(), &tracking, &p_bar));
     }
@@ -1827,7 +1823,7 @@ void driver(const std::string& ref_gtf_filename,
     
     if (allele_specific_abundance_estimation) {
         allele_abundance_recorder->clear_tracking_data();
-        allele_abundance_recorder = boost::shared_ptr<AlleleAbundanceRecorder>(new AlleleAbundanceRecorder(bundle_factories.size(), &tracking, &p_bar));
+        allele_abundance_recorder = boost::shared_ptr<AlleleAbundanceRecorder>(new AlleleAbundanceRecorder(bundle_factories.size(), NULL, &p_bar));
     } else { 
         abundance_recorder->clear_tracking_data();
         abundance_recorder = boost::shared_ptr<AbundanceRecorder>(new AbundanceRecorder(bundle_factories.size(), &tracking, &p_bar));
@@ -1877,32 +1873,45 @@ void driver(const std::string& ref_gtf_filename,
 	
 	p_bar.complete();
 
+    fprintf(stderr, "Checkpoint 1\n");
+
     string expression_cxb_filename = output_dir + "/abundances.cxb";
     std::ofstream ofs(expression_cxb_filename.c_str());
     boost::archive::binary_oarchive oa(ofs);
 
     if (allele_specific_abundance_estimation)
     {
+        fprintf(stderr, "Checkpoint 2\n");
+
         vector< pair<int, AlleleAbundanceGroup> > single_sample_tracking;
 
-        const light_allele_ab_group_tracking_table& sample_table = allele_abundance_recorder->get_sample_table();
-        for (light_allele_ab_group_tracking_table::const_iterator itr = sample_table.begin(); itr != sample_table.end(); ++itr)
+        light_allele_ab_group_tracking_table& sample_table = allele_abundance_recorder->get_sample_table();
+        for (light_allele_ab_group_tracking_table::iterator itr = sample_table.begin(); itr != sample_table.end(); )
         {
             assert (itr->second.size() == 1);
             single_sample_tracking.push_back(make_pair(itr->first, itr->second[0]));
+            sample_table.erase(itr++);
         }
+
+        fprintf(stderr, "Checkpoint 3\n");
 
         std::sort(single_sample_tracking.begin(), single_sample_tracking.end(),
                   boost::bind(&std::pair<int, AlleleAbundanceGroup>::first, _1) <
                   boost::bind(&std::pair<int, AlleleAbundanceGroup>::first, _2));
     
+        fprintf(stderr, "Checkpoint 4\n");
+
         size_t num_loci = single_sample_tracking.size();
         oa << num_loci;
         
+        fprintf(stderr, "Checkpoint 5\n");
+
         for (int i = 0; i < single_sample_tracking.size(); ++i)
         {
             oa << single_sample_tracking[i];
         }
+
+        fprintf(stderr, "Checkpoint 6\n");
     }
     else
     {
@@ -2125,8 +2134,8 @@ int main(int argc, char** argv)
     
     driver(ref_gtf_filename, mask_gtf_filename, input_vcf, norm_standards_file, sam_hit_filenames, outfiles);
     
-    fclose(outfiles.isoform_fpkm_tracking_out);
-    fclose(outfiles.gene_fpkm_tracking_out);
+    //fclose(outfiles.isoform_fpkm_tracking_out);
+    //fclose(outfiles.gene_fpkm_tracking_out);
 
 	return 0;
 }

@@ -863,6 +863,7 @@ private:
 };
 
 class AbundanceGroup;
+class AlleleAbundanceGroup;
     
 /******************************************************************************
  BAMHitFactory turns SAM alignments into ReadHits
@@ -996,7 +997,135 @@ private:
     boost::mutex _factory_lock;
 #endif
 };
+
+class AllelePrecomputedExpressionHitFactory : public HitFactory
+{
+public:
+    AllelePrecomputedExpressionHitFactory(const string& expression_file_name,
+                                          ReadTable& insert_table,
+                                          RefSequenceTable& reference_table) :
+    HitFactory(insert_table, reference_table), _expression_file_name(expression_file_name), _ifs(expression_file_name.c_str()),
+    _ia(boost::shared_ptr<boost::archive::binary_iarchive>(new boost::archive::binary_iarchive(_ifs)))
+    {
+        load_count_tables(expression_file_name);
+        
+        if (inspect_header() == false)
+        {
+            throw std::runtime_error("Error: could not parse CXB header");
+        }
+        
+        // Override header-inferred read group properities with whatever
+        // the user supplied.
+        if (global_read_properties != NULL)
+        {
+            _rg_props = *global_read_properties;
+        }
+        
+        load_checked_parameters(expression_file_name);
+        
+        _num_loci = 0;
+        *_ia >> _num_loci;
+        
+        _curr_locus_idx = 0;
+        _last_locus_id = -1;
+    }
     
+    ~AllelePrecomputedExpressionHitFactory()
+    {
+        
+    }
+    
+    void mark_curr_pos()
+    {
+        
+    }
+    
+    void undo_hit()
+    {
+    }
+    
+    bool records_remain() const
+    {
+        return false;
+    }
+    
+    void reset()
+    {
+        _ifs.clear() ;
+        _ifs.seekg(0, ios::beg);
+        _ia = boost::shared_ptr<boost::archive::binary_iarchive>(new boost::archive::binary_iarchive(_ifs));
+        size_t num_loci = 0;
+        *_ia >> num_loci;
+        _last_locus_id = -1;
+        _curr_locus_idx = 0;
+        _curr_ab_groups.clear();
+    }
+    
+    bool next_record(const char*& buf, size_t& buf_size);
+    
+    bool get_hit_from_buf(const char* bwt_buf, 
+                          ReadHit& bh,
+                          bool strip_slash,
+                          char* name_out = NULL,
+                          char* name_tags = NULL);
+    
+    bool inspect_header();
+    
+    boost::shared_ptr<const AlleleAbundanceGroup> next_locus(int locus_id, bool cache_locus);
+    
+    boost::shared_ptr<const AlleleAbundanceGroup> get_abundance_for_locus(int locus_id);
+    void clear_abundance_for_locus(int locus_id);
+    
+    double get_compat_mass(int locus_id)
+    {
+       map<int, double >::iterator i = compat_mass.find(locus_id);
+       if (i != compat_mass.end())
+       {
+           return i->second;
+       }
+       else
+       {
+           return 0;
+       }
+    }
+
+    double get_total_mass(int locus_id)
+    {
+        map<int, double >::iterator i = total_mass.find(locus_id);
+        if (i != total_mass.end())
+        {
+            return i->second;
+        }
+        else
+        {
+            return 0;
+        }
+    }
+
+    
+private:
+    
+    void load_count_tables(const string& expression_file_name);
+    void load_checked_parameters(const string& expression_file_name);
+    
+    //map<int, boost::shared_ptr<const AbundanceGroup> > ab_group_table;
+    size_t _num_loci;
+    size_t _curr_locus_idx;
+    int _last_locus_id;
+    std::ifstream _ifs;
+    string _expression_file_name;
+    boost::shared_ptr<boost::archive::binary_iarchive> _ia;
+    map<int, double> compat_mass;
+    map<int, double> total_mass;
+    map<int, boost::shared_ptr<const AlleleAbundanceGroup> > _curr_ab_groups;
+    
+    boost::shared_ptr<ReadGroupProperties> _cached_rg_props;
+    
+#if ENABLE_THREADS
+    boost::mutex _factory_lock;
+#endif
+};
+      
     
 // Forward declaration of BundleFactory, because MateHit will need a pointer
 // back to the Factory that created.  Ultimately, we should replace this
