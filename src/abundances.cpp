@@ -5466,7 +5466,7 @@ FPKMPerReplicateTable AlleleAbundanceGroup::maternal_FPKM_by_replicate() const
 
     BOOST_FOREACH(boost::shared_ptr<Abundance> ab, _abundances)
     {
-        FPKMPerReplicateTable ab_fpr = ab->paternal_FPKM_by_replicate();
+        FPKMPerReplicateTable ab_fpr = ab->maternal_FPKM_by_replicate();
 
         for (FPKMPerReplicateTable::const_iterator itr = ab_fpr.begin();
              itr != ab_fpr.end(); ++itr)
