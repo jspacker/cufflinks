@@ -1626,8 +1626,14 @@ void AllelePrecomputedExpressionHitFactory::load_count_tables(const string& expr
     {
         pair<int, AlleleAbundanceGroup> first_locus;
         ia >> first_locus;
+
+        while(first_locus.second.rg_props().size() == 0)
+        {
+            ia >> first_locus; // not actually the first locus anymore...
+        }
+
         boost::shared_ptr<AlleleAbundanceGroup> ab = boost::shared_ptr<AlleleAbundanceGroup>(new AlleleAbundanceGroup(first_locus.second));
-        
+
         // populate the cached count tables so we can make convincing fake bundles later on.
         ReadGroupProperties rg_props = **(ab->rg_props().begin());
 
@@ -1659,6 +1665,12 @@ void AllelePrecomputedExpressionHitFactory::load_checked_parameters(const string
     {
         pair<int, AlleleAbundanceGroup> first_locus;
         ia >> first_locus;
+
+        while(first_locus.second.rg_props().size() == 0)
+        {
+            ia >> first_locus; // not actually the first locus anymore...
+        }
+
         boost::shared_ptr<AlleleAbundanceGroup> ab = boost::shared_ptr<AlleleAbundanceGroup>(new AlleleAbundanceGroup(first_locus.second));
         
         // populate the cached count tables so we can make convincing fake bundles later on.

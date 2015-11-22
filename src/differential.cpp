@@ -525,12 +525,10 @@ void AlleleTestLauncher::record_tracking_data(vector<boost::shared_ptr<SampleAll
 	for (size_t i = 0; i < abundances.size(); ++i)
 	{
 		const AlleleAbundanceGroup& ab_group = abundances[i]->transcripts;
-        //fprintf(stderr, "[%d] count = %lg\n",i,  ab_group.num_fragments());
-		//nimrod??
+
 		BOOST_FOREACH (boost::shared_ptr<Abundance> ab, ab_group.abundances())
 		{
 			add_to_allele_tracking_table(i, *ab, _tracking->isoform_fpkm_tracking);
-            //assert (_tracking->isoform_fpkm_tracking.num_fragments_by_replicate().empty() == false);
 		}
 		BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances[i]->cds)
 		{
@@ -553,8 +551,8 @@ void AlleleTestLauncher::record_tracking_data(vector<boost::shared_ptr<SampleAll
 vector<vector<boost::shared_ptr<SampleAlleleAbundances> > > AlleleTestLauncher::test_finished_loci()
 {
 #if ENABLE_THREADS
-	boost::mutex::scoped_lock lock(_launcher_lock);
-#endif  
+    _launcher_lock.lock();
+#endif
 
     vector<vector<boost::shared_ptr<SampleAlleleAbundances> > > samples_for_testing;
 
@@ -584,24 +582,20 @@ vector<vector<boost::shared_ptr<SampleAlleleAbundances> > > AlleleTestLauncher::
                     _p_bar->update(itr->second.front()->locus_tag.c_str(), 1);
                 }
                 record_tracking_data(itr->second);
+                if (!_track_only)
+                    samples_for_testing.push_back(itr->second);
             }
-            record_tracking_data(itr->second);
-            if (!_track_only)
-                samples_for_testing.push_back(itr->second);
-            
-            // Removes the samples that have already been tested and transferred to the tracking tables,
             itr = _samples.erase(itr);
         }
         else
-        {
-            
+        { 
             ++itr;
         }
     }
-    
+
 #if ENABLE_THREADS
-	_launcher_lock.unlock();
-#endif
+    _launcher_lock.unlock();
+#endif    
     return samples_for_testing;
 }
 
