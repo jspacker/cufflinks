@@ -683,7 +683,7 @@ void driver(FILE* ref_gtf, FILE* mask_gtf, string input_vcf, FILE* contrast_file
             {
                 try
                 {
-                    hs = boost::shared_ptr<HitFactory>(new BAMHitFactory(sam_hit_filenames[j], it, rt, &snps));
+                    hs = boost::shared_ptr<HitFactory>(new BAMHitFactory(sam_hit_filenames[j], it, rt, (uint32_t) min_map_qual, &snps));
                 }
                 catch (std::runtime_error& e) 
                 {
@@ -691,7 +691,7 @@ void driver(FILE* ref_gtf, FILE* mask_gtf, string input_vcf, FILE* contrast_file
                     {
 //                        fprintf(stderr, "File %s doesn't appear to be a valid BAM file, trying SAM...\n",
 //                                sam_hit_filenames[j].c_str());
-                        hs = boost::shared_ptr<HitFactory>(new SAMHitFactory(sam_hit_filenames[j], it, rt, &snps));
+                        hs = boost::shared_ptr<HitFactory>(new SAMHitFactory(sam_hit_filenames[j], it, rt, (uint32_t) min_map_qual, &snps));
                     }
                     catch (std::runtime_error& e)
                     {

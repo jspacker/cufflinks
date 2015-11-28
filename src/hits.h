@@ -36,7 +36,7 @@ using namespace std;
 
 enum CuffStrand { CUFF_STRAND_UNKNOWN = 0, CUFF_FWD = 1, CUFF_REV = 2, CUFF_BOTH = 3 };
 //Nimrod
-enum AlleleInfo { ALLELE_PATERNAL = 0, ALLELE_MATERNAL = 1, ALLELE_UNINFORMATIVE_PATERNAL_REF = 2, ALLELE_UNINFORMATIVE_MATERNAL_REF = 3, ALLELE_UNKNOWN = 4 };
+enum AlleleInfo { ALLELE_PATERNAL = 0, ALLELE_MATERNAL = 1, ALLELE_UNINFORMATIVE_PATERNAL_REF = 2, ALLELE_UNINFORMATIVE_MATERNAL_REF = 3, ALLELE_UNKNOWN = 4, ALLELE_INCONSISTENT = 5 };
 	
 
 enum CigarOpCode 
@@ -703,10 +703,12 @@ public:
 	SAMHitFactory(const string& hit_file_name, 
 				  ReadTable& insert_table, 
 				  RefSequenceTable& reference_table,
+                                  uint32_t min_qual = 0,
                                   map<string, map<int, pair<char, char> > >* snps = NULL) : 
 		HitFactory(insert_table, reference_table), 
 		_line_num(0), 
 		_curr_pos(0),
+                _min_qual(min_qual),
                 _snps(snps)
 	{
 		_hit_file = fopen(hit_file_name.c_str(), "r");
@@ -765,6 +767,7 @@ private:
 	FILE* _hit_file;
 	off_t _curr_pos;
 
+	uint32_t _min_qual;
 	map<string, map<int, pair<char, char> > >* _snps;
 };
 
@@ -777,8 +780,10 @@ public:
 	BAMHitFactory(const string& hit_file_name, 
 				  ReadTable& insert_table, 
 				  RefSequenceTable& reference_table,
+                                  uint32_t min_qual = 0,
                                   map<string, map<int, pair<char, char> > >* snps = NULL) : 
 		HitFactory(insert_table, reference_table),
+                _min_qual(min_qual),
                 _snps(snps) 
 	{
 		_hit_file = samopen(hit_file_name.c_str(), "rb", 0);
@@ -859,6 +864,7 @@ private:
 	bam1_t _next_hit; 
     bool _eof_encountered;
 
+    uint32_t _min_qual;
     map<string, map<int, pair<char, char> > >* _snps;
 };
 

@@ -1508,7 +1508,7 @@ void driver(const std::string& ref_gtf_filename,
             boost::shared_ptr<HitFactory> hs;
             try
             {
-                hs = boost::shared_ptr<HitFactory>(new BAMHitFactory(sam_hit_filenames[j], it, rt, &snps));
+                hs = boost::shared_ptr<HitFactory>(new BAMHitFactory(sam_hit_filenames[j], it, rt, (uint32_t) min_map_qual, &snps));
             }
             catch (std::runtime_error& e) 
             {
@@ -1516,7 +1516,7 @@ void driver(const std::string& ref_gtf_filename,
                 {
                     fprintf(stderr, "File %s doesn't appear to be a valid BAM file, trying SAM...\n",
                             sam_hit_filenames[j].c_str());
-                    hs = boost::shared_ptr<HitFactory>(new SAMHitFactory(sam_hit_filenames[j], it, rt, &snps));
+                    hs = boost::shared_ptr<HitFactory>(new SAMHitFactory(sam_hit_filenames[j], it, rt, (uint32_t) min_map_qual, &snps));
                 }
                 catch (std::runtime_error& e)
                 {

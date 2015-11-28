@@ -599,7 +599,7 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 	
 	//header->target_name[c->tid]
 	
-	if (sam_flag & 0x4 || target_id < 0)
+	if (sam_flag & 0x4 || target_id < 0 || hit_buf->core.qual < _min_qual)
 	{
 		//assert(cigar.size() == 1 && cigar[0].opcode == MATCH);
 		bh = create_hit(bam1_qname(hit_buf),
@@ -826,7 +826,7 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 				{
 					if (allele_info == ALLELE_MATERNAL)
 					{
-						allele_info = ALLELE_UNKNOWN;
+						allele_info = ALLELE_INCONSISTENT;
 						break;
 					}
 					else
@@ -838,7 +838,7 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 				{
 					if (allele_info == ALLELE_PATERNAL)
 					{
-						allele_info = ALLELE_UNKNOWN;
+						allele_info = ALLELE_INCONSISTENT;
 						break;
 					}
 					else
@@ -1105,6 +1105,7 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 	int sam_flag = atoi(sam_flag_str);
 	int text_offset = atoi(text_offset_str);
 	int text_mate_pos = atoi(mate_pos_str);
+        uint32_t qual = (uint32_t) atoi(map_qual_str);
 	
 	// Copy the tag out of the name field before we might wipe it out
 	char* pipe = strrchr(name, '|');
@@ -1125,7 +1126,7 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 	bool spliced_alignment = false;
 	int num_hits = 1;
 	    
-    if ((sam_flag & 0x4) ||!strcmp(text_name, "*"))
+    if ((sam_flag & 0x4) ||!strcmp(text_name, "*") || qual < _min_qual)
 	{
 		//assert(cigar.size() == 1 && cigar[0].opcode == MATCH);
 		bh = create_hit(name,

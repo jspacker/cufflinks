@@ -528,6 +528,7 @@ void AlleleTestLauncher::record_tracking_data(vector<boost::shared_ptr<SampleAll
 
 		BOOST_FOREACH (boost::shared_ptr<Abundance> ab, ab_group.abundances())
 		{
+                    if (!ab) { fprintf(stderr, "ERROR: null pointer to abundance object in AlleleTestLauncher::record_tracking_data"); exit(1); }
 			add_to_allele_tracking_table(i, *ab, _tracking->isoform_fpkm_tracking);
 		}
 		BOOST_FOREACH (AlleleAbundanceGroup& ab, abundances[i]->cds)

@@ -93,6 +93,8 @@ extern bool model_mle_error;
 extern bool allele_specific_abundance_estimation;
 extern int min_allele_reads;
 extern std::string input_vcf;
+extern std::string phased_reads_output;
+extern int min_map_qual;
 
 // Ref-guided assembly options
 extern int overhang_3;
@@ -878,4 +880,6 @@ void print_stack_trace_if_exit_with_error();
 #define OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION 321
 #define OPT_ALLELE_SPECIFIC_DIFFERENTIAL 322
 #define OPT_INPUT_VCF 323
+#define OPT_JUST_PHASE_READS 324
+#define OPT_MIN_MAP_QUAL 325
 #endif

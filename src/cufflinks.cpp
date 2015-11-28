@@ -72,6 +72,8 @@ static struct option long_options[] = {
 {"total-hits-norm",         no_argument,	 		 0,	         OPT_USE_TOTAL_MASS},
 {"allele-specific-abundance-estimation",  no_argument,     0,    OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION},	
 {"input-vcf", required_argument, 0, OPT_INPUT_VCF },
+{"just-phase-reads", required_argument, 0, OPT_JUST_PHASE_READS },
+{"min-map-qual", required_argument, 0, OPT_MIN_MAP_QUAL },
     
 // assembly
 {"pre-mrna-fraction",		required_argument,		 0,			 'j'},
@@ -142,6 +144,8 @@ void print_usage()
     //Nimrod
     fprintf(stderr, "  --allele-specific-abundance-estimation   Estimation of allele specific isoform aundances [ default:  FALSE ]\n");
     fprintf(stderr, "  --input-vcf                  phased VCF used to assign reads to alleles if they aren't already phased\n");
+    fprintf(stderr, "  --just-phase-reads           just output (read id, allele) tuples to this file and do nothing else\n");
+    fprintf(stderr, "  --min-map-qual               filter reads with mapping quality < this\n");
     fprintf(stderr, "\nAdvanced Assembly Options:\n");
     fprintf(stderr, "  -L/--label                   assembled transcripts have this ID prefix             [ default:   CUFF ]\n");
     fprintf(stderr, "  -F/--min-isoform-fraction    suppress transcripts below this abundance level       [ default:   0.10 ]\n");
@@ -409,6 +413,15 @@ int parse_options(int argc, char** argv)
             {
                 input_vcf = optarg;
                 break;
+            }
+            case OPT_JUST_PHASE_READS:
+            {
+                phased_reads_output = optarg;
+                break;
+            }
+            case OPT_MIN_MAP_QUAL:
+            {
+                min_map_qual = parseInt(0, "--min-map-qual must be at least 0", print_usage);
             }
             case OPT_MAX_FRAGS_PER_BUNDLE:
             {
@@ -1968,10 +1981,50 @@ bool assemble_hits(BundleFactory& bundle_factory, boost::shared_ptr<BiasLearner>
 	return true;
 }
 
+void print_phased_reads(boost::shared_ptr<HitFactory>& hit_factory)
+{
+    FILE* output = fopen(phased_reads_output.c_str(), "w");
+    if (!output)
+    {
+        fprintf(stderr, "Cannot open output file: %s\n", phased_reads_output.c_str());
+        exit(1);
+    }
+
+    while (true)
+    {
+        const char* hit_buf;
+        size_t hit_buf_size = 0;
+        ReadHit hit;
+
+        if (!hit_factory->next_record(hit_buf, hit_buf_size))
+            break;
+
+        if (!hit_factory->get_hit_from_buf(hit_buf, hit, false))
+            continue;
+        if (hit.ref_id() == 12638153115695167477)
+            continue;
+
+        // TODO: this won't work with SAM input
+        const char* read_id = bam1_qname((bam1_t*) hit_buf);
+        AlleleInfo allele = hit.allele_info();
+
+        if (allele == ALLELE_PATERNAL) {
+            fprintf(output, "%s\tP\n", read_id);
+        } else if (allele == ALLELE_MATERNAL) {
+            fprintf(output, "%s\tM\n", read_id);
+        } else if (allele == ALLELE_UNKNOWN) {
+            fprintf(output, "%s\tU\n", read_id);
+        } else if (allele == ALLELE_INCONSISTENT) {
+            fprintf(output, "%s\tI\n", read_id);
+        }
+    }
+
+    fclose(output);
+}
+
 void driver(const string& hit_file_name,
             FILE* ref_gtf,
-            FILE* mask_gtf,
-            string& input_vcf)
+            FILE* mask_gtf)
 {
     // chr -> pos -> (paternal allele, maternal allele)
     map<string, map<int, pair<char, char> > > snps;
@@ -1986,7 +2039,7 @@ void driver(const string& hit_file_name,
 
     try
 	{
-		hit_factory = boost::shared_ptr<BAMHitFactory>(new BAMHitFactory(hit_file_name, it, rt, &snps));
+		hit_factory = boost::shared_ptr<BAMHitFactory>(new BAMHitFactory(hit_file_name, it, rt, (uint32_t) min_map_qual, &snps));
 	}
 	catch (std::runtime_error& e)
 	{
@@ -1995,7 +2048,7 @@ void driver(const string& hit_file_name,
 	
         try
         {
-            hit_factory = boost::shared_ptr<SAMHitFactory>(new SAMHitFactory(hit_file_name, it, rt, &snps));
+            hit_factory = boost::shared_ptr<SAMHitFactory>(new SAMHitFactory(hit_file_name, it, rt, (uint32_t) min_map_qual, &snps));
         }
         catch (std::runtime_error& e)
         {
@@ -2004,6 +2057,12 @@ void driver(const string& hit_file_name,
             exit(1);
         }
 	}
+
+    if (phased_reads_output != "")
+    {
+        print_phased_reads(hit_factory);
+        exit(0);
+    }
 	
 	boost::shared_ptr<BundleFactory> bundle_factory = boost::shared_ptr<BundleFactory>(new BundleFactory(hit_factory, bundle_mode));
 	boost::shared_ptr<ReadGroupProperties> rg_props = bundle_factory->read_group_properties();
@@ -2195,7 +2254,7 @@ int main(int argc, char** argv)
         }
     }
     
-    driver(sam_hits_file_name, ref_gtf, mask_gtf, input_vcf);
+    driver(sam_hits_file_name, ref_gtf, mask_gtf);
 	
 	return 0;
 }
