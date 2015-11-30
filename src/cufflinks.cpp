@@ -422,6 +422,7 @@ int parse_options(int argc, char** argv)
             case OPT_MIN_MAP_QUAL:
             {
                 min_map_qual = parseInt(0, "--min-map-qual must be at least 0", print_usage);
+                break;
             }
             case OPT_MAX_FRAGS_PER_BUNDLE:
             {

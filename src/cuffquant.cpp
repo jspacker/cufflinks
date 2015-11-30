@@ -74,6 +74,7 @@ static struct option long_options[] = {
 {"bias-mode",               required_argument,		 0,			 OPT_BIAS_MODE},
 {"allele-specific-abundance-estimation",  no_argument,     0,    OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION},
 {"input-vcf", required_argument, 0, OPT_INPUT_VCF },
+{"min-map-qual", required_argument, 0, OPT_MIN_MAP_QUAL },
 {"no-update-check",         no_argument,             0,          OPT_NO_UPDATE_CHECK},
     
 // Some options for testing different stats policies
@@ -110,6 +111,7 @@ void print_usage()
     fprintf(stderr, "  --max-mle-iterations         maximum iterations allowed for MLE calculation        [ default:   5000 ]\n");
     fprintf(stderr, "  --allele-specific-abundance-estimation   Estimation of allele specific isoform aundances [ default:  FALSE ]\n");
     fprintf(stderr, "  --input-vcf                  phased VCF used to assign reads to alleles if they aren't already phased\n");
+    fprintf(stderr, "  --min-map-qual               filter reads with mapping quality < this\n");
     fprintf(stderr, "  -v/--verbose                 log-friendly verbose processing (no progress bar)     [ default:  FALSE ]\n");
 	fprintf(stderr, "  -q/--quiet                   log-friendly quiet processing (no progress bar)       [ default:  FALSE ]\n");
     fprintf(stderr, "  --seed                       value of random number generator seed                 [ default:      0 ]\n");
@@ -307,6 +309,11 @@ int parse_options(int argc, char** argv)
             case OPT_INPUT_VCF:
             {
                 input_vcf = optarg;
+                break;
+            }
+            case OPT_MIN_MAP_QUAL:
+            {   
+                min_map_qual = parseInt(0, "--min-map-qual must be at least 0", print_usage);
                 break;
             } 
 			default:
@@ -1449,7 +1456,6 @@ void parse_norm_standards_file(FILE* norm_standards_file)
 
 void driver(const std::string& ref_gtf_filename,
             const std::string& mask_gtf_filename,
-            const std::string& input_vcf_filename,
             FILE* norm_standards_file,
             vector<string>& sam_hit_filename_lists,
             Outfiles& outfiles)
@@ -1873,16 +1879,12 @@ void driver(const std::string& ref_gtf_filename,
 	
 	p_bar.complete();
 
-    fprintf(stderr, "Checkpoint 1\n");
-
     string expression_cxb_filename = output_dir + "/abundances.cxb";
     std::ofstream ofs(expression_cxb_filename.c_str());
     boost::archive::binary_oarchive oa(ofs);
 
     if (allele_specific_abundance_estimation)
     {
-        fprintf(stderr, "Checkpoint 2\n");
-
         vector< pair<int, AlleleAbundanceGroup> > single_sample_tracking;
 
         light_allele_ab_group_tracking_table& sample_table = allele_abundance_recorder->get_sample_table();
@@ -1893,25 +1895,17 @@ void driver(const std::string& ref_gtf_filename,
             sample_table.erase(itr++);
         }
 
-        fprintf(stderr, "Checkpoint 3\n");
-
         std::sort(single_sample_tracking.begin(), single_sample_tracking.end(),
                   boost::bind(&std::pair<int, AlleleAbundanceGroup>::first, _1) <
                   boost::bind(&std::pair<int, AlleleAbundanceGroup>::first, _2));
     
-        fprintf(stderr, "Checkpoint 4\n");
-
         size_t num_loci = single_sample_tracking.size();
         oa << num_loci;
         
-        fprintf(stderr, "Checkpoint 5\n");
-
         for (int i = 0; i < single_sample_tracking.size(); ++i)
         {
             oa << single_sample_tracking[i];
         }
-
-        fprintf(stderr, "Checkpoint 6\n");
     }
     else
     {
@@ -2132,7 +2126,7 @@ int main(int argc, char** argv)
     char out_file_prefix[filename_buf_size];
     sprintf(out_file_prefix, "%s/", output_dir.c_str());
     
-    driver(ref_gtf_filename, mask_gtf_filename, input_vcf, norm_standards_file, sam_hit_filenames, outfiles);
+    driver(ref_gtf_filename, mask_gtf_filename, norm_standards_file, sam_hit_filenames, outfiles);
     
     //fclose(outfiles.isoform_fpkm_tracking_out);
     //fclose(outfiles.gene_fpkm_tracking_out);
