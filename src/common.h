@@ -94,6 +94,7 @@ extern bool allele_specific_abundance_estimation;
 extern int min_allele_reads;
 extern std::string input_vcf;
 extern std::string phased_reads_output;
+extern std::string snp_allele_count_output;
 extern int min_map_qual;
 
 // Ref-guided assembly options
@@ -192,7 +193,8 @@ void splitString(const std::string& str,
                  std::vector<std::string>& subStrs,
                  const std::string& delimiter);
 void load_vcf(std::string& input_vcf,
-              std::map<std::string, std::map<int, std::pair<char, char> > >& snps);
+              std::map<std::string, std::map<int, std::pair<char, char> > >& snps,
+              std::map<std::pair<std::string, int>, std::string>* snp_ids = NULL);
 
 template<typename InputIterator,
 		 typename OutputIterator,
@@ -881,5 +883,6 @@ void print_stack_trace_if_exit_with_error();
 #define OPT_ALLELE_SPECIFIC_DIFFERENTIAL 322
 #define OPT_INPUT_VCF 323
 #define OPT_JUST_PHASE_READS 324
-#define OPT_MIN_MAP_QUAL 325
+#define OPT_JUST_COUNT_SNP_ALLELES 325
+#define OPT_MIN_MAP_QUAL 326
 #endif

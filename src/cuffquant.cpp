@@ -74,6 +74,7 @@ static struct option long_options[] = {
 {"bias-mode",               required_argument,		 0,			 OPT_BIAS_MODE},
 {"allele-specific-abundance-estimation",  no_argument,     0,    OPT_ALLELE_SPECIFIC_ABUNDANCE_ESTIMATION},
 {"input-vcf", required_argument, 0, OPT_INPUT_VCF },
+{"just-count-snp-alleles", required_argument, 0, OPT_JUST_COUNT_SNP_ALLELES },
 {"min-map-qual", required_argument, 0, OPT_MIN_MAP_QUAL },
 {"no-update-check",         no_argument,             0,          OPT_NO_UPDATE_CHECK},
     
@@ -111,6 +112,7 @@ void print_usage()
     fprintf(stderr, "  --max-mle-iterations         maximum iterations allowed for MLE calculation        [ default:   5000 ]\n");
     fprintf(stderr, "  --allele-specific-abundance-estimation   Estimation of allele specific isoform aundances [ default:  FALSE ]\n");
     fprintf(stderr, "  --input-vcf                  phased VCF used to assign reads to alleles if they aren't already phased\n");
+    fprintf(stderr, "  --just-count-snp-alleles     output (snp, # paternal reads, # maternal reads) tuples to this file and do nothing else\n                               assumes 1 single input BAM\n");
     fprintf(stderr, "  --min-map-qual               filter reads with mapping quality < this\n");
     fprintf(stderr, "  -v/--verbose                 log-friendly verbose processing (no progress bar)     [ default:  FALSE ]\n");
 	fprintf(stderr, "  -q/--quiet                   log-friendly quiet processing (no progress bar)       [ default:  FALSE ]\n");
@@ -309,6 +311,11 @@ int parse_options(int argc, char** argv)
             case OPT_INPUT_VCF:
             {
                 input_vcf = optarg;
+                break;
+            }
+            case OPT_JUST_COUNT_SNP_ALLELES:
+            {
+                snp_allele_count_output = optarg;
                 break;
             }
             case OPT_MIN_MAP_QUAL:
@@ -1454,6 +1461,81 @@ void parse_norm_standards_file(FILE* norm_standards_file)
     lib_norm_standards = norm_standards;
 }
 
+struct snp_allele_count {
+    int paternal_count;
+    int maternal_count;
+    int unknown_count;
+    int inconsistent_count;
+
+    snp_allele_count() {
+        paternal_count = 0;
+        maternal_count = 0;
+        unknown_count = 0;
+        inconsistent_count = 0;
+    }
+};
+
+void print_snp_allele_counts(boost::shared_ptr<HitFactory>& hit_factory,
+                             map<pair<string, int>, string>& snp_ids)
+{
+    FILE* output = fopen(snp_allele_count_output.c_str(), "w");
+    if (!output)
+    {
+        fprintf(stderr, "Cannot open output file: %s\n", phased_reads_output.c_str());
+        exit(1);
+    }
+
+    map<string, snp_allele_count> count;
+
+    while (true)
+    {
+        const char* hit_buf;
+        size_t hit_buf_size = 0;
+        ReadHit hit;
+        vector<pair<string, int> > hit_snps;
+
+        if (!hit_factory->next_record(hit_buf, hit_buf_size))
+            break;
+
+        if (!hit_factory->get_hit_from_buf(hit_buf, hit, false, NULL, NULL, &hit_snps))
+            continue;
+        if (hit.ref_id() == 12638153115695167477)
+            continue;
+
+        AlleleInfo allele = hit.allele_info();
+        for (vector<pair<string, int> >::iterator it = hit_snps.begin();
+             it != hit_snps.end(); ++it)
+        {
+            map<pair<string, int>, string>::iterator id = snp_ids.find(*it);
+            if (id != snp_ids.end())
+            {
+                snp_allele_count& this_snp_count = count[id->second];
+                if (allele == ALLELE_PATERNAL)
+                    this_snp_count.paternal_count++;
+                else if (allele == ALLELE_MATERNAL)
+                    this_snp_count.maternal_count++;
+                else if (allele == ALLELE_UNKNOWN)
+                    this_snp_count.unknown_count++;
+                else if (allele == ALLELE_INCONSISTENT)
+                    this_snp_count.inconsistent_count++;
+            }
+        }
+    }
+
+    for (map<string, snp_allele_count>::iterator it = count.begin();
+         it != count.end(); ++it)
+    {
+         fprintf(output, "%s\t%d\t%d\t%d\t%d\n",
+                 it->first.c_str(),
+                 it->second.paternal_count,
+                 it->second.maternal_count,
+                 it->second.unknown_count,
+                 it->second.inconsistent_count);
+    }
+
+    fclose(output);
+}
+
 void driver(const std::string& ref_gtf_filename,
             const std::string& mask_gtf_filename,
             FILE* norm_standards_file,
@@ -1487,10 +1569,15 @@ void driver(const std::string& ref_gtf_filename,
 
 	// chr -> pos -> (paternal allele, maternal allele)
 	map<string, map<int, pair<char, char> > > snps;
+        map<pair<string, int>, string> snp_ids;
 	if (input_vcf != "") {
-		load_vcf(input_vcf, snps);
+            if (snp_allele_count_output != "") {
+		load_vcf(input_vcf, snps, &snp_ids);
+            } else {
+                load_vcf(input_vcf, snps);
+            }
 	}
-    
+
 	ReadTable it;
 	RefSequenceTable rt(true, false);
     
@@ -1560,6 +1647,11 @@ void driver(const std::string& ref_gtf_filename,
         
         bundle_factories.push_back(boost::shared_ptr<ReplicatedBundleFactory>(new ReplicatedBundleFactory(replicate_factories, condition_name)));
 	}
+
+    if (snp_allele_count_output != "") {
+        print_snp_allele_counts(all_hit_factories[0], snp_ids);
+        exit(0);
+    }
     
     boost::crc_32_type ref_gtf_crc_result;
     ::load_ref_rnas(ref_gtf, rt, ref_mRNAs, ref_gtf_crc_result, corr_bias, false);

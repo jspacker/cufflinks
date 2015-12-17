@@ -582,7 +582,8 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 									 ReadHit& bh,
 									 bool strip_slash,
 									 char* name_out,
-									 char* name_tags)
+									 char* name_tags,
+									 vector<pair<string, int> >* hit_snps)
 {
 	const bam1_t* hit_buf = (const bam1_t*)orig_bwt_buf;
 	
@@ -846,6 +847,12 @@ bool BAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 						allele_info = ALLELE_MATERNAL;
 					}
 				}
+
+				if (hit_snps != NULL) {
+                                	pair<string, int> snp_coord(text_name, snp->first);
+					hit_snps->push_back(snp_coord);
+                                }
+
 				++snp;
 			}
 		}
@@ -1045,7 +1052,8 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 									 ReadHit& bh,
 									 bool strip_slash,
 									 char* name_out,
-									 char* name_tags)
+									 char* name_tags,
+									 vector<pair<string, int> >* hit_snps)
 {	
 	char bwt_buf[10*2048];
 
@@ -1400,6 +1408,12 @@ bool SAMHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 						allele_info = ALLELE_MATERNAL;
 					}
 				}
+
+				if (hit_snps != NULL) {
+					pair<string, int> snp_coord(text_name, snp->first);
+					hit_snps->push_back(snp_coord);
+				}
+
 				++snp;
 			}
 		}
@@ -1512,7 +1526,8 @@ bool PrecomputedExpressionHitFactory::get_hit_from_buf(const char* orig_bwt_buf,
 									 ReadHit& bh,
 									 bool strip_slash,
 									 char* name_out,
-									 char* name_tags)
+									 char* name_tags,
+									 vector<pair<string, int> >* hit_snps)
 {
 	return false;
 }
@@ -1689,7 +1704,8 @@ bool AllelePrecomputedExpressionHitFactory::get_hit_from_buf(const char* orig_bw
 									 ReadHit& bh,
 									 bool strip_slash,
 									 char* name_out,
-									 char* name_tags)
+									 char* name_tags,
+									 vector<pair<string, int> >* hit_snps)
 {
 	return false;
 }

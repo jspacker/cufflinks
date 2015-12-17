@@ -663,7 +663,8 @@ public:
 								  ReadHit& bh,
 								  bool strip_slash,
 								  char* name_out = NULL,
-								  char* name_tags = NULL) = 0;
+								  char* name_tags = NULL,
+								  vector<pair<string, int> >* hit_snps = NULL) = 0;
 	
 	RefSequenceTable& ref_table() { return _ref_table; }
 	
@@ -755,7 +756,8 @@ public:
 						  ReadHit& bh,
 						  bool strip_slash,
 						  char* name_out = NULL,
-						  char* name_tags = NULL);
+						  char* name_tags = NULL,
+						  vector<pair<string, int> >* hit_snps = NULL);
     
     bool inspect_header();
     
@@ -852,7 +854,8 @@ public:
 						  ReadHit& bh,
 						  bool strip_slash,
 						  char* name_out = NULL,
-						  char* name_tags = NULL);
+						  char* name_tags = NULL,
+						  vector<pair<string, int> >* hit_snps = NULL);
     
     bool inspect_header();
 	
@@ -945,7 +948,8 @@ public:
                           ReadHit& bh,
                           bool strip_slash,
                           char* name_out = NULL,
-                          char* name_tags = NULL);
+                          char* name_tags = NULL,
+                          vector<pair<string, int> >* hit_snps = NULL);
     
     bool inspect_header();
     
@@ -1073,7 +1077,8 @@ public:
                           ReadHit& bh,
                           bool strip_slash,
                           char* name_out = NULL,
-                          char* name_tags = NULL);
+                          char* name_tags = NULL,
+                          vector<pair<string, int> >* hit_snps = NULL);
     
     bool inspect_header();
     

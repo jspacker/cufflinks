@@ -89,6 +89,7 @@ bool allele_specific_abundance_estimation = false;
 int min_allele_reads = 10;
 string input_vcf = "";
 string phased_reads_output = "";
+string snp_allele_count_output = "";
 int min_map_qual = 0;
 
 // Ref-guided assembly options
@@ -331,7 +332,8 @@ void splitString(const string& str,
 }
 
 void load_vcf(string& input_vcf,
-              map<string, map<int, pair<char, char> > >& snps)
+              map<string, map<int, pair<char, char> > >& snps,
+              map<pair<string, int>, string>* snp_ids)
 {
     ifstream file;
     string line;
@@ -377,6 +379,11 @@ void load_vcf(string& input_vcf,
         pair<char, char> var(pat_allele, mat_allele);
         int pos = (int) strtol(fields[1].c_str(), NULL, 10);
         snps[fields[0]][pos] = var;
+
+        if (snp_ids != NULL && fields[2] != ".") {
+            pair<string, int> coord(fields[0], pos);
+            (*snp_ids)[coord] = fields[2];
+        }
     }
 
     file.close();
